@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>St. Augustine Accounts</title>
+  <link rel="stylesheet" href="style.css?v=v19_9">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <section id="setupView" class="auth-view hidden">
+    <div class="auth-card setup-card">
+      <div class="brand-seal">SA</div>
+      <h1>St. Augustine Academic Foundation</h1>
+      <p class="auth-sub">FIRST-TIME SECURE SETUP</p>
+      <div class="security-note">No default password is displayed or stored in plain text. Create the three login passwords below.</div>
+      <form id="firstSetupForm" class="setup-grid">
+        <div class="field"><label>Accountant ID</label><input value="accountant" disabled></div>
+        <div class="field"><label>Accountant Password</label><input name="accountantPassword" type="password" minlength="6" required autocomplete="new-password"></div>
+        <div class="field"><label>CEO ID</label><input value="ceo" disabled></div>
+        <div class="field"><label>CEO Password</label><input name="ceoPassword" type="password" minlength="6" required autocomplete="new-password"></div>
+        <div class="field"><label>MD ID</label><input value="md" disabled></div>
+        <div class="field"><label>MD Password</label><input name="mdPassword" type="password" minlength="6" required autocomplete="new-password"></div>
+        <div class="field full"><label>Confirm Accountant Password</label><input name="accountantConfirm" type="password" minlength="6" required autocomplete="new-password"></div>
+        <div class="full form-actions"><button class="btn primary big" type="submit">Create Secure Accounts</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section id="loginView" class="auth-view hidden">
+    <div class="auth-card login-card">
+      <div class="brand-seal">SA</div>
+      <h1>St. Augustine</h1>
+      <p class="school-sub">ACADEMIC FOUNDATION</p>
+      <div class="auth-divider"></div>
+      <h2>Accounts Login</h2>
+      <form id="loginForm">
+        <label>User ID</label>
+        <select id="loginRole">
+          <option value="accountant">Accountant</option>
+          <option value="ceo">CEO</option>
+          <option value="md">Managing Director (MD)</option>
+        </select>
+        <label>Password</label>
+        <div class="password-row">
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+          <button id="togglePassword" type="button" class="mini-btn">Show</button>
+        </div>
+        <button class="login-btn" type="submit">Login</button>
+      </form>
+      <div class="login-help">Secure online login via Supabase. Use the password created for the selected account.</div>
+    </div>
+  </section>
+
+  <section id="appView" class="app hidden">
+    <header class="top-menu">
+      <div class="top-left">
+        <button id="mobileNavBtn" class="mobile-nav-btn" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
+        <div class="mini-brand">SA</div>
+        <button class="top-link" data-page="dashboard">Dashboard</button>
+        <button class="top-link accountant-only" data-page="students">Masters</button>
+        <button class="top-link accountant-only" data-page="feePayment">Entries</button>
+        <button class="top-link" data-page="reports">Reports</button>
+        <button class="top-link accountant-only" data-page="feeStructure">Fee Setup</button>
+        <button class="top-link accountant-only" data-page="access">Access Control</button>
+        <button class="top-link accountant-only" data-page="settings">Settings</button>
+        <button class="top-link" data-page="help">Help</button>
+      </div>
+      <div class="top-right">
+        <span class="role-label" id="topRole">ACCOUNTANT</span>
+        <button class="square-btn" id="homeBtn" title="Home">⌂</button>
+        <button class="square-btn" id="logoutBtn" title="Logout">⏻</button>
+      </div>
+    </header>
+    <button id="mobileNavShade" class="mobile-nav-shade" type="button" aria-label="Close navigation"></button>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="side-logo-wrap">
+          <div id="sideLogo" class="side-logo">SA</div>
+          <div><strong>St. Augustine</strong><small>ACCOUNTS</small></div>
+        </div>
+        <nav id="sideNav"></nav>
+        <div class="side-clock">
+          <div id="clockText">--:-- --</div>
+          <small id="userText">User</small>
+          <button class="refresh-link" id="refreshBtn">Refresh</button>
+          <small id="loginTime">Login Time: --</small>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="page-head">
+          <div>
+            <p id="breadcrumb">Accounts &gt; Dashboard</p>
+            <h2 id="pageTitle">Dashboard</h2>
+          </div>
+          <div class="head-actions">
+            <label class="inline-label">Academic Year</label>
+            <select id="academicYear"></select>
+            <label class="inline-label">Today's Nepali Date</label>
+            <input id="workingDate" class="np-date" placeholder="2083-05-28" maxlength="10" readonly>
+          </div>
+        </div>
+        <div id="content"></div>
+      </main>
+    </div>
+  </section>
+
+  <div id="modalBackdrop" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <div><small id="modalKicker">DETAIL</small><h3 id="modalTitle">Detail</h3></div>
+        <button class="close-btn" id="closeModal" aria-label="Close">✕</button>
+      </div>
+      <div id="modalContent" class="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="app.js?v=v19_9"></script>
+</body>
+</html>
