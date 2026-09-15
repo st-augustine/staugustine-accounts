@@ -937,8 +937,38 @@ async function v5AdminAccountDialog(){
 }
 function v5GradingDialog(){openModal("Grading Scale",`<div class="section-title"><div><h3>Grading Scale</h3><p>Editable. Changes affect future calculations immediately.</p></div></div><div class="table-wrap"><table><thead><tr><th>Min %</th><th>Max %</th><th>Grade</th><th>Grade Point</th><th>Description</th><th>NG?</th><th></th></tr></thead><tbody>${state.grades.map(g=>`<tr><td>${num(g.min_percent)}</td><td>${num(g.max_percent)}</td><td>${esc(g.grade)}</td><td>${num(g.grade_point).toFixed(1)}</td><td>${esc(g.description||"")}</td><td>${g.is_ng?"Yes":"No"}</td><td><button class="btn small" onclick="gradeDialog(${g.id})">Edit</button></td></tr>`).join("")}</tbody></table></div>`);}
 
-async function renderBackup(){$("#content").innerHTML=`<div class="section"><div class="section-title"><div><h3>Online Data Backup</h3><p>Download the current Marks/Result database data as a JSON backup file.</p></div></div><button class="btn green" onclick="v5CreateBackup()">Create Backup Now</button><div class="info" style="margin-top:14px">The online database is separate from Accounts. Restore is intentionally not automatic in this build so an accidental file cannot overwrite live student/result data. Keep downloaded backups safely.</div></div>`;}
-async function v5CreateBackup(){const tables=["settings","academic_years","exams","result_publications","students","subjects","class_settings","components","marks","grading_scale","import_profiles","import_logs"];const out={created_at:new Date().toISOString(),project:"staugustine-marks-result",tables:{}};for(const t of tables){const {data,error}=await sb.from(t).select("*");if(error)return toast(`${t}: ${errMsg(error)}`);out.tables[t]=data||[];}const blob=new Blob([JSON.stringify(out,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`StAugustine_Marks_Backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);toast("Backup downloaded successfully.");}
+async function renderBackup(){
+  $("#content").innerHTML=`<div class="section"><div class="section-title"><div><h3>Online Data Backup / Restore</h3><p>Create a complete Marks/Result JSON backup, or restore a previously downloaded backup.</p></div></div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn green" onclick="v5CreateBackup()">Create Backup Now</button><button class="btn primary" onclick="v11ChooseRestoreBackup()">Restore Backup</button><input id="v11RestoreFile" type="file" accept=".json,application/json" class="hidden"></div><div class="info" style="margin-top:14px"><strong>Restore safety:</strong> Restore replaces Marks/Result data in this Marks database only. It does not change the Accounts database and it does not restore/change the Administrator login password. Before restoring, keep a fresh backup of the current data.</div></div>`;
+  const f=$("#v11RestoreFile"); if(f)f.onchange=e=>v11RestoreBackupFile(e.currentTarget);
+}
+async function v5CreateBackup(){const tables=["settings","academic_years","exams","result_publications","students","subjects","class_settings","components","marks","grading_scale","import_profiles","import_logs"];const out={backup_version:2,created_at:new Date().toISOString(),project:"staugustine-marks-result",tables:{}};for(const t of tables){const {data,error}=await sb.from(t).select("*");if(error)return toast(`${t}: ${errMsg(error)}`);out.tables[t]=data||[];}const blob=new Blob([JSON.stringify(out,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`StAugustine_Marks_Backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);toast("Backup downloaded successfully.");}
+function v11ChooseRestoreBackup(){const f=$("#v11RestoreFile");if(f){f.value="";f.click();}}
+async function v11RestoreBackupFile(input){
+  const file=input?.files?.[0]; if(!file)return;
+  let backup;
+  try{backup=JSON.parse(await file.text());}catch(_e){input.value="";return toast("Invalid backup file: JSON could not be read.");}
+  const required=["settings","academic_years","exams","result_publications","students","subjects","class_settings","components","marks","grading_scale","import_profiles","import_logs"];
+  if(backup?.project!=="staugustine-marks-result"||!backup?.tables){input.value="";return toast("This is not a St. Augustine Marks backup file.");}
+  const missing=required.filter(t=>!Array.isArray(backup.tables[t]));
+  if(missing.length){input.value="";return toast(`Backup is incomplete: ${missing.join(", ")}`);}
+  const c=backup.tables;
+  const summary=`Backup date: ${backup.created_at||"Unknown"}\nAcademic years: ${c.academic_years.length}\nStudents: ${c.students.length}\nExams: ${c.exams.length}\nSubjects: ${c.subjects.length}\nMarks: ${c.marks.length}\n\nRESTORE WILL REPLACE THE CURRENT MARKS/RESULT DATA.\nType RESTORE to continue.`;
+  const typed=prompt(summary,"");
+  if(typed!=="RESTORE"){input.value="";return toast("Restore cancelled.");}
+  if(!confirm("Final confirmation: restore this backup now? Current Marks/Result data will be replaced.")){input.value="";return toast("Restore cancelled.");}
+  toast("Restoring backup… do not close this tab.");
+  try{
+    const {data,error}=await sb.rpc("restore_marks_backup_atomic",{p_backup:backup});
+    if(error)throw error;
+    state.yearId=null; await loadFoundation(); await navigate("dashboard");
+    toast(`Restore complete. ${data?.students??c.students.length} students and ${data?.marks??c.marks.length} marks restored.`);
+  }catch(e){
+    console.error(e);
+    const m=errMsg(e);
+    if(m.toLowerCase().includes("restore_marks_backup_atomic"))toast("Restore support SQL is not installed. Run BACKUP_RESTORE_SUPPORT_SQL.sql once in the Marks Supabase project.");
+    else toast(`Restore failed: ${m}`);
+  }finally{input.value="";}
+}
 
 
 
@@ -951,7 +981,7 @@ async function componentDialog(subjectId,id=null){
 async function deleteSubject(id){if(!confirm("Delete this subject, all components and their marks?"))return;const {error}=await sb.from("subjects").delete().eq("id",id);if(error)return toast(errMsg(error));state.v5SubjectId=null;state.v5ComponentId=null;toast("Subject deleted.");await v5LoadSubjectSetup();}
 async function deleteComponent(id){if(!confirm("Delete this component and its marks?"))return;const {error}=await sb.from("components").delete().eq("id",id);if(error)return toast(errMsg(error));state.v5ComponentId=null;toast("Component deleted.");await v5LoadSubjectSetup();}
 /* re-export v5 functions referenced from inline handlers */
-Object.assign(window,{navigate,renderDashboard,renderStudents,renderMarks,renderImportMarksLedger,renderSubjects,renderResults,renderSettings,renderBackup,v5LoadSubjectSetup,v5SaveClassTeacher,v5ExportResultsExcel,v5ClassSettingsDialog,v5AdminAccountDialog,v5GradingDialog,v5ChooseLogo,v5CreateBackup,subjectDialog,componentDialog,deleteSubject,deleteComponent,printSingleResult,printBulkResults,selectAllResultStudents,updateResultSelectionState});
+Object.assign(window,{navigate,renderDashboard,renderStudents,renderMarks,renderImportMarksLedger,renderSubjects,renderResults,renderSettings,renderBackup,v5LoadSubjectSetup,v5SaveClassTeacher,v5ExportResultsExcel,v5ClassSettingsDialog,v5AdminAccountDialog,v5GradingDialog,v5ChooseLogo,v5CreateBackup,v11ChooseRestoreBackup,v11RestoreBackupFile,subjectDialog,componentDialog,deleteSubject,deleteComponent,printSingleResult,printBulkResults,selectAllResultStudents,updateResultSelectionState});
 
 /* ============================================================
    ONLINE V7 — FUNCTIONALITY FINALIZATION PHASE 1
