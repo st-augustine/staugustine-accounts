@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>St. Augustine Marks Entry & Result Software</title>
+  <link rel="stylesheet" href="style.css?v=8-functionality-2" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <section id="loginView" class="login-shell">
+    <div class="login-brand-panel">
+      <div class="login-brand-inner">
+        <h1>ST. AUGUSTINE</h1>
+        <h2>Marks Entry &amp; Result Management</h2>
+        <p class="edition">Professional Online Edition</p>
+        <p class="features">Excel Student Import &nbsp; • &nbsp; Marks Ledger Import/Export<br>
+        Manual Marks Entry &nbsp; • &nbsp; WGP &amp; GPA &nbsp; • &nbsp; Grade-Sheet PDF<br>
+        Secure Online Database &nbsp; • &nbsp; Backup / Export</p>
+        <p class="data-note">Marks/Result data is stored in the separate Marks Supabase project and remains independent from Accounts.</p>
+      </div>
+    </div>
+    <div class="login-form-panel">
+      <div class="login-card">
+        <h2>Welcome Back</h2>
+        <p>Sign in to continue to Result System</p>
+        <form id="loginForm">
+          <label>Username / Email</label>
+          <input id="loginUser" autocomplete="username" required />
+          <label>Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password" required />
+          <button class="btn primary login-button" type="submit">LOGIN TO SOFTWARE</button>
+        </form>
+        <small>Secure administrator access • Login ID and password can be changed from Settings</small>
+      </div>
+    </div>
+  </section>
+
+  <section id="appView" class="app-view hidden">
+    <div class="desktop-shell">
+      <aside id="sidebar" class="sidebar">
+        <div class="side-brand">
+          <strong>ST. AUGUSTINE</strong>
+          <small>RESULT MANAGEMENT SUITE</small>
+        </div>
+        <div class="year-box">
+          <label>ACADEMIC YEAR</label>
+          <select id="yearSelect"></select>
+        </div>
+        <nav id="nav"></nav>
+        <div class="side-bottom">
+          <button id="logoutBtn" class="signout-btn">Sign out</button>
+          <small>Logged in: <span id="userText">admin</span></small>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="page-head">
+          <h1 id="pageTitle">Dashboard</h1>
+          <p id="pageSubtitle"></p>
+          <div id="pageActions" class="hidden"></div>
+          <div id="breadcrumb" class="hidden"></div>
+        </div>
+        <div id="content"></div>
+      </main>
+    </div>
+    <span id="activeYearText" class="hidden"></span>
+    <span id="userBadge" class="hidden"></span>
+    <button id="mobileNavBtn" class="hidden" type="button"></button>
+  </section>
+
+  <div id="modalBackdrop" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <div><small id="modalKicker">DETAIL</small><h3 id="modalTitle"></h3></div>
+        <button id="closeModal" class="close-btn" type="button">✕</button>
+      </div>
+      <div id="modalContent" class="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="app.js?v=8-functionality-2"></script>
+</body>
+</html>
