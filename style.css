@@ -352,3 +352,6 @@ body{letter-spacing:.001em}
 
 /* V19.10: printed school name stays on one line in A5 receipt previews. */
 .v195-school h1{white-space:nowrap!important;font-size:15px!important;letter-spacing:-.25px!important;line-height:1.05!important}
+
+/* Marks Entry integration: direct link only; no Accounts/Marks data connection. */
+.marks-entry-link{display:flex;align-items:center;text-decoration:none;color:inherit}
