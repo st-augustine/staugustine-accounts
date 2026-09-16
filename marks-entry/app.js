@@ -1341,18 +1341,50 @@ async function downloadBulkResultsPdf(){
   if(!chosen.length)return toast("No selected student results found.");
   const host=document.createElement("div");
   host.className="print-batch bulk-pdf-download-host";
-  host.style.position="fixed";host.style.left="-100000px";host.style.top="0";host.style.width="210mm";host.style.background="#fff";host.style.zIndex="-1";
+  /*
+   * Keep the PDF source inside the real page viewport.
+   * v21 placed it at left:-100000px; Chromium/html2canvas can return a
+   * completely blank canvas for elements that far outside the render area.
+   * A negative z-index keeps it out of the visible UI without making it
+   * display:none / visibility:hidden / opacity:0 (all of which would also
+   * produce an empty capture).
+   */
+  host.style.position="absolute";
+  host.style.left="0";
+  host.style.top="0";
+  host.style.width="210mm";
+  host.style.height="auto";
+  host.style.background="#fff";
+  host.style.color="#000";
+  host.style.zIndex="-9999";
+  host.style.pointerEvents="none";
+  host.style.opacity="1";
+  host.style.visibility="visible";
+  host.style.transform="none";
   host.innerHTML=chosen.map(r=>gradeSheetHtml(r,c.exam,cfg,issue)).join("");
   document.body.appendChild(host);
   try{
+    if(document.fonts?.ready){try{await document.fonts.ready;}catch(_e){}}
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     await waitForPrintImages(host);
     const filename=`Result_${_safeFilename(c.cls)}_${_safeFilename(c.exam.name)}_${_safeFilename(issue)}.pdf`;
+    const renderWidth=Math.max(document.documentElement.clientWidth||0,host.scrollWidth||0,794);
+    const renderHeight=Math.max(document.documentElement.clientHeight||0,host.scrollHeight||0,1123);
     const options={
       margin:0,
       filename,
       image:{type:"jpeg",quality:0.98},
-      html2canvas:{scale:1.6,useCORS:true,backgroundColor:"#ffffff",logging:false},
+      html2canvas:{
+        scale:1.6,
+        useCORS:true,
+        allowTaint:false,
+        backgroundColor:"#ffffff",
+        logging:false,
+        scrollX:0,
+        scrollY:0,
+        windowWidth:renderWidth,
+        windowHeight:renderHeight
+      },
       jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},
       pagebreak:{mode:["css","legacy"]}
     };
