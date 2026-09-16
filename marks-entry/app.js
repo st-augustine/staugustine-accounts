@@ -1330,3 +1330,237 @@ async function printBulkResults(){
 }
 
 Object.assign(window,{renderResults,refreshResults,setResultStatus,v5ExportResultsExcel,printSingleResult,printBulkResults});
+
+/* ============================================================
+   v12 — TERM-WISE FULL MARKS / ASSESSMENT SNAPSHOTS
+   ------------------------------------------------------------
+   Subject/components remain reusable master templates.
+   Actual FM / Pass % / Credit / Weight are stored per Examination.
+   Full Marks has no 100-mark assumption: 900/900 = 100%.
+   ============================================================ */
+
+async function v12ResultLock(examId,cls){
+  const {data,error}=await sb.from("result_publications").select("status,publish_date_bs").eq("exam_id",examId).eq("class_name",cls).maybeSingle();
+  if(error)throw error;
+  const status=String(data?.status||"DRAFT").toUpperCase();
+  return {status,locked:["FINALIZED","PUBLISHED"].includes(status),publish_date_bs:data?.publish_date_bs||""};
+}
+
+async function v12EnsureExamSettings(examId,cls){
+  const lock=await v12ResultLock(examId,cls);
+  if(lock.locked)return lock;
+  const {error}=await sb.rpc("ensure_exam_component_settings",{p_exam_id:examId,p_class_name:cls});
+  if(error){
+    const msg=String(error.message||"");
+    if(/ensure_exam_component_settings|schema cache|function/i.test(msg))throw new Error("Term-wise Full Marks SQL is not installed. Run TERM_WISE_FULL_MARKS_SQL.sql once in the Marks Supabase project.");
+    throw error;
+  }
+  return lock;
+}
+
+async function v12EffectiveSubjects(examId,cls,subjectIds=null,{ensure=true}={}){
+  if(ensure)await v12EnsureExamSettings(examId,cls);
+  let req=sb.from("subjects").select("id,name,credit_hour,sort_order,active,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name");
+  if(Array.isArray(subjectIds)&&subjectIds.length)req=req.in("id",subjectIds);
+  const {data:subjects,error}=await req;if(error)throw error;
+  const list=subjects||[],compIds=list.flatMap(s=>(s.components||[]).map(c=>num(c.id))).filter(Boolean);
+  if(!compIds.length)return list.map(s=>({...s,components:[]}));
+  const {data:settings,error:se}=await sb.from("exam_component_settings").select("exam_id,component_id,full_marks,weight_percent,credit_hour,pass_percent").eq("exam_id",examId).in("component_id",compIds);
+  if(se){
+    const msg=String(se.message||"");
+    if(/exam_component_settings|schema cache|relation/i.test(msg))throw new Error("Term-wise Full Marks SQL is not installed. Run TERM_WISE_FULL_MARKS_SQL.sql once in the Marks Supabase project.");
+    throw se;
+  }
+  const sm=new Map((settings||[]).map(x=>[num(x.component_id),x]));
+  return list.map(s=>({...s,components:(s.components||[])
+    .filter(c=>sm.has(num(c.id)))
+    .map(c=>{const x=sm.get(num(c.id));return {...c,master_full_marks:c.full_marks,master_weight_percent:c.weight_percent,master_credit_hour:c.credit_hour,master_pass_percent:c.pass_percent,full_marks:x.full_marks,weight_percent:x.weight_percent,credit_hour:x.credit_hour,pass_percent:x.pass_percent,v12_exam_setting:true};})
+    .sort((a,b)=>num(a.sort_order)-num(b.sort_order)||num(a.id)-num(b.id))}));
+}
+
+async function v12InjectTermSetupPanel(){
+  const split=document.querySelector(".subject-split");if(!split||$("#v12TermSetupPanel"))return;
+  const exams=await examOptions();
+  const panel=document.createElement("div");panel.id="v12TermSetupPanel";panel.className="section";panel.style.marginTop="14px";
+  panel.innerHTML=`<div class="section-title"><div><h3>Term-wise Assessment / Full Marks</h3><p>Each examination keeps its own permanent FM setup. Full Marks may be 20, 100, 300, 900, 1000 or any positive value.</p></div></div>
+    <div class="toolbar" style="align-items:flex-end;flex-wrap:wrap">
+      <div class="field" style="min-width:260px"><label>Examination / Term</label><select id="v12TermExam">${exams.map(e=>`<option value="${e.id}" ${num(e.id)===num(state.selectedExamId)?"selected":""}>${esc(e.name)}</option>`).join("")}</select></div>
+      <button class="btn" id="v12CopyPreviousTerm" type="button">Copy Previous Exam Setup</button>
+      <button class="btn" id="v12UseMasterDefaults" type="button">Use Current Master Defaults</button>
+      <button class="btn green" id="v12SaveTermSetup" type="button">SAVE TERM SETUP</button>
+    </div>
+    <div class="info" style="margin-top:10px"><strong>Calculation rule:</strong> Percentage = Obtained Marks ÷ actual Full Marks × 100. Example: 810 / 900 = 90%; 900 / 900 = 100%.</div>
+    <div id="v12TermSetupStatus" style="margin-top:10px"></div>
+    <div id="v12TermSetupTable" style="margin-top:10px"><div class="empty">Select a subject above.</div></div>`;
+  split.insertAdjacentElement("afterend",panel);
+  const ex=$("#v12TermExam");if(ex&&!ex.value&&ex.options.length)ex.selectedIndex=0;
+  if(ex)ex.onchange=v12LoadTermSetup;
+  $("#v12SaveTermSetup").onclick=v12SaveTermSetup;
+  $("#v12CopyPreviousTerm").onclick=v12CopyPreviousTermSetup;
+  $("#v12UseMasterDefaults").onclick=v12ApplyMasterDefaults;
+}
+
+async function v12LoadTermSetup(){
+  const host=$("#v12TermSetupTable"),statusHost=$("#v12TermSetupStatus");if(!host)return;
+  const examId=num($("#v12TermExam")?.value),cls=$("#subjectClass")?.value||"",subjectId=num(state.v5SubjectId);
+  if(!examId){host.innerHTML=`<div class="empty">Add an examination in Settings first.</div>`;return;}
+  if(!subjectId){host.innerHTML=`<div class="empty">Select or add a subject first.</div>`;return;}
+  host.innerHTML=`<div class="empty">Loading term setup…</div>`;
+  try{
+    const lock=await v12EnsureExamSettings(examId,cls);
+    const [{data:sub,error:se},{data:rows,error:re}]=await Promise.all([
+      sb.from("subjects").select("id,name,components(*)").eq("id",subjectId).single(),
+      sb.from("exam_component_settings").select("component_id,full_marks,weight_percent,credit_hour,pass_percent").eq("exam_id",examId)
+    ]);
+    if(se)throw se;if(re)throw re;
+    const map=new Map((rows||[]).map(x=>[num(x.component_id),x]));
+    const comps=(sub?.components||[]).filter(c=>map.has(num(c.id))).sort((a,b)=>num(a.sort_order)-num(b.sort_order)||num(a.id)-num(b.id));
+    if(statusHost)statusHost.innerHTML=lock.locked?`<div class="notice"><strong>${esc(lock.status)} — LOCKED.</strong> This term's Full Marks setup cannot be changed unless the result lifecycle is returned to an editable state.</div>`:`<div class="info"><strong>${esc(lock.status)}</strong> — This examination/class setup is editable. Saving changes affects only this selected examination.</div>`;
+    if(!comps.length){host.innerHTML=`<div class="empty">No assessment component is snapshotted for this subject in this examination.</div>`;return;}
+    host.innerHTML=`<div class="table-wrap"><table><thead><tr><th>Component</th><th>Master Default FM</th><th>Term Full Marks</th><th>Pass %</th><th>Credit Hour</th><th>Weight %</th></tr></thead><tbody>${comps.map(c=>{const x=map.get(num(c.id));const dis=lock.locked?"disabled":"";return `<tr data-v12-component="${c.id}"><td><strong>${esc(c.code)}</strong><br><small>${esc(c.label||"")}</small></td><td class="center">${num(c.full_marks)}</td><td><input class="v12-term-fm" type="number" step="0.001" min="0.001" value="${num(x.full_marks)}" ${dis}></td><td><input class="v12-term-pass" type="number" step="0.001" min="0" max="100" value="${x.pass_percent??""}" ${dis}></td><td><input class="v12-term-credit" type="number" step="0.001" min="0" value="${x.credit_hour??""}" ${dis}></td><td><input class="v12-term-weight" type="number" step="0.001" min="0" value="${x.weight_percent??""}" ${dis}></td></tr>`}).join("")}</tbody></table></div>`;
+    const save=$("#v12SaveTermSetup"),copy=$("#v12CopyPreviousTerm"),defaults=$("#v12UseMasterDefaults");if(save)save.disabled=lock.locked;if(copy)copy.disabled=lock.locked;if(defaults)defaults.disabled=lock.locked;
+  }catch(e){console.error(e);host.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;}
+}
+
+async function v12SaveTermSetup(){
+  const examId=num($("#v12TermExam")?.value),cls=$("#subjectClass")?.value||"";if(!examId)return toast("Select examination.");
+  try{
+    const lock=await v12ResultLock(examId,cls);if(lock.locked)return toast(`${lock.status}: this term setup is locked.`);
+    const payload=[];
+    for(const tr of $$('tr[data-v12-component]')){
+      const component_id=num(tr.dataset.v12Component),fm=Number(tr.querySelector('.v12-term-fm')?.value),passRaw=tr.querySelector('.v12-term-pass')?.value??"",creditRaw=tr.querySelector('.v12-term-credit')?.value??"",weightRaw=tr.querySelector('.v12-term-weight')?.value??"";
+      if(!Number.isFinite(fm)||fm<=0)return toast("Full Marks must be a positive number. It is not limited to 100.");
+      const pass=passRaw===""?null:Number(passRaw),credit=creditRaw===""?null:Number(creditRaw),weight=weightRaw===""?null:Number(weightRaw);
+      if(pass!=null&&(!Number.isFinite(pass)||pass<0||pass>100))return toast("Pass % must be between 0 and 100.");
+      if(credit!=null&&(!Number.isFinite(credit)||credit<0))return toast("Credit Hour cannot be negative.");
+      if(weight!=null&&(!Number.isFinite(weight)||weight<0))return toast("Weight % cannot be negative.");
+      payload.push({exam_id:examId,component_id,full_marks:fm,pass_percent:pass,credit_hour:credit,weight_percent:weight,updated_at:new Date().toISOString()});
+    }
+    if(!payload.length)return toast("No term component is available to save.");
+    const {error}=await sb.from("exam_component_settings").upsert(payload,{onConflict:"exam_id,component_id"});if(error)throw error;
+    toast("Term-wise Full Marks setup saved. Other examinations are unchanged.");
+    await v12LoadTermSetup();
+  }catch(e){console.error(e);toast(errMsg(e));}
+}
+
+async function v12ApplyMasterDefaults(){
+  const examId=num($("#v12TermExam")?.value),cls=$("#subjectClass")?.value||"",subjectId=num(state.v5SubjectId);if(!examId||!subjectId)return;
+  if(!confirm("Replace this selected examination's values for the selected subject with the current master defaults? Other examinations will not change."))return;
+  try{
+    const lock=await v12ResultLock(examId,cls);if(lock.locked)return toast(`${lock.status}: this term setup is locked.`);
+    await v12EnsureExamSettings(examId,cls);
+    const {data,error}=await sb.from("subjects").select("components(*)").eq("id",subjectId).single();if(error)throw error;
+    const rows=(data?.components||[]).map(c=>({exam_id:examId,component_id:c.id,full_marks:c.full_marks,weight_percent:c.weight_percent,credit_hour:c.credit_hour,pass_percent:c.pass_percent,updated_at:new Date().toISOString()}));
+    if(rows.length){const {error:ue}=await sb.from("exam_component_settings").upsert(rows,{onConflict:"exam_id,component_id"});if(ue)throw ue;}
+    toast("Current master defaults copied to this examination only.");await v12LoadTermSetup();
+  }catch(e){console.error(e);toast(errMsg(e));}
+}
+
+async function v12CopyPreviousTermSetup(){
+  const targetId=num($("#v12TermExam")?.value),cls=$("#subjectClass")?.value||"",subjectId=num(state.v5SubjectId);if(!targetId||!subjectId)return;
+  try{
+    const lock=await v12ResultLock(targetId,cls);if(lock.locked)return toast(`${lock.status}: this term setup is locked.`);
+    const exams=await examOptions(),idx=exams.findIndex(e=>num(e.id)===targetId);if(idx<=0)return toast("No previous examination is available to copy.");
+    const prev=exams[idx-1];
+    const {data:sub,error:se}=await sb.from("subjects").select("components(id)").eq("id",subjectId).single();if(se)throw se;const compIds=(sub?.components||[]).map(c=>num(c.id));if(!compIds.length)return toast("This subject has no components.");
+    const {data:source,error}=await sb.from("exam_component_settings").select("component_id,full_marks,weight_percent,credit_hour,pass_percent").eq("exam_id",prev.id).in("component_id",compIds);if(error)throw error;if(!(source||[]).length)return toast(`No saved setup was found in ${prev.name}.`);
+    if(!confirm(`Copy ${prev.name} Full Marks setup into the selected examination for this subject?`))return;
+    const rows=source.map(x=>({exam_id:targetId,component_id:x.component_id,full_marks:x.full_marks,weight_percent:x.weight_percent,credit_hour:x.credit_hour,pass_percent:x.pass_percent,updated_at:new Date().toISOString()}));
+    const {error:ue}=await sb.from("exam_component_settings").upsert(rows,{onConflict:"exam_id,component_id"});if(ue)throw ue;
+    toast(`${prev.name} setup copied to this examination.`);await v12LoadTermSetup();
+  }catch(e){console.error(e);toast(errMsg(e));}
+}
+
+const v12BaseRenderSubjects=renderSubjects;
+const v12BaseLoadSubjectSetup=v5LoadSubjectSetup;
+renderSubjects=async function(){await v12BaseRenderSubjects();await v12InjectTermSetupPanel();await v12LoadTermSetup();};
+v5LoadSubjectSetup=async function(){await v12BaseLoadSubjectSetup();if($("#v12TermSetupPanel"))await v12LoadTermSetup();};
+
+/* Subject dialog now clearly separates reusable defaults from actual term setup. */
+async function subjectDialog(id=null){
+  const cls=$("#subjectClass")?.value||"Class 1";let subject=null,components=[];
+  if(id){const {data,error}=await sb.from("subjects").select("*,components(*)").eq("id",id).single();if(error)return toast(errMsg(error));subject=data;components=(data.components||[]);}
+  const byCode=new Map(components.map(c=>[String(c.code||"").toUpperCase(),c])),inc=byCode.get("IN")||byCode.get("INTERNAL")||{},th=byCode.get("TH")||byCode.get("THEORY")||{};
+  openModal("Subject Setup",`<form id="v5SubjectForm" class="form-grid"><div class="field full"><label>Class Teacher</label><input name="teacher" value="${esc($("#classTeacherInput")?.value||"")}"></div><div class="field full"><label>Subject Name</label><input name="name" value="${esc(subject?.name||"")}" required></div><div class="full" style="background:#EAF1FF;color:var(--navy2);font-weight:600;padding:7px 8px">MASTER DEFAULTS FOR NEW EXAMINATIONS</div><div class="field"><label>Default Internal Full Marks</label><input name="in_fm" type="number" step="0.001" min="0.001" value="${inc.full_marks??50}"></div><div class="field"><label>Internal Weight %</label><input name="in_wt" type="number" step="0.001" value="${inc.weight_percent??50}"></div><div class="field"><label>Internal Credit Hour</label><input name="in_ch" type="number" step="0.001" value="${inc.credit_hour??2}"></div><div class="field"><label>Default Theory Full Marks</label><input name="th_fm" type="number" step="0.001" min="0.001" value="${th.full_marks??50}"></div><div class="field"><label>Theory Weight %</label><input name="th_wt" type="number" step="0.001" value="${th.weight_percent??50}"></div><div class="field"><label>Theory Credit Hour</label><input name="th_ch" type="number" step="0.001" value="${th.credit_hour??2}"></div><div class="info full"><strong>Important:</strong> These are reusable master defaults. Use <b>Term-wise Assessment / Full Marks</b> below Subject Setup to set the actual First/Second/Third/Final Term values. Full Marks is not limited to 100.</div><div class="form-actions full"><button type="button" class="btn" onclick="closeModal()">Cancel</button><button class="btn primary">SAVE SUBJECT DEFAULTS</button></div></form>`);
+  $("#v5SubjectForm").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));try{const inFm=Number(f.in_fm),thFm=Number(f.th_fm);if(!Number.isFinite(inFm)||inFm<=0||!Number.isFinite(thFm)||thFm<=0)return toast("Default Full Marks must be positive. It is not limited to 100.");const p={academic_year_id:state.yearId,class_name:cls,name:f.name.trim().toUpperCase(),sort_order:subject?.sort_order||1,active:true};let sid=id;if(id){const {error}=await sb.from("subjects").update(p).eq("id",id);if(error)throw error;}else{const {data,error}=await sb.from("subjects").insert({...p,credit_hour:0}).select("id").single();if(error)throw error;sid=data.id;}await sb.from("class_settings").upsert({academic_year_id:state.yearId,class_name:cls,class_teacher:f.teacher.trim()},{onConflict:"academic_year_id,class_name"});const defs=[{code:"IN",label:"INTERNAL",full_marks:inFm,weight_percent:num(f.in_wt),credit_hour:num(f.in_ch),pass_percent:40,sort_order:1},{code:"TH",label:"THEORY",full_marks:thFm,weight_percent:num(f.th_wt),credit_hour:num(f.th_ch),pass_percent:35,sort_order:2}];for(const d of defs){const old=components.find(c=>String(c.code||"").toUpperCase()===d.code);const res=old?await sb.from("components").update(d).eq("id",old.id):await sb.from("components").insert({subject_id:sid,...d});if(res.error)throw res.error;}closeModal();toast("Subject master defaults saved. Set actual term FM in Term-wise Assessment Setup.");state.v5SubjectId=sid;await v5LoadSubjectSetup();}catch(err){toast(errMsg(err));}};
+}
+
+async function componentDialog(subjectId,id=null){
+  let r={code:"",label:"",full_marks:100,weight_percent:"",credit_hour:1,pass_percent:0,sort_order:1};if(id){const {data,error}=await sb.from("components").select("*").eq("id",id).single();if(error)return toast(errMsg(error));r=data;}
+  openModal(id?"Edit Component Default":"Add Component Default",`<form id="componentForm" class="form-grid three"><div class="field"><label>Code</label><input name="code" value="${esc(r.code)}" placeholder="IN / TH / PR" required></div><div class="field"><label>Label</label><input name="label" value="${esc(r.label)}" required></div><div class="field"><label>Default Full Marks</label><input name="full_marks" type="number" step="0.001" min="0.001" value="${num(r.full_marks)}" required></div><div class="field"><label>Weight %</label><input name="weight_percent" type="number" step="0.001" value="${r.weight_percent??""}"></div><div class="field"><label>Credit Hour</label><input name="credit_hour" type="number" step="0.001" min="0" value="${r.credit_hour??""}"></div><div class="field"><label>Pass %</label><input name="pass_percent" type="number" step="0.001" min="0" max="100" value="${r.pass_percent??""}"></div><div class="field"><label>Sort Order</label><input name="sort_order" type="number" value="${num(r.sort_order)||1}"></div><div class="info full">This Full Marks is a master default for new examination snapshots. Actual term value is edited in Term-wise Assessment Setup.</div><div class="form-actions full"><button type="button" class="btn" onclick="closeModal()">Cancel</button><button class="btn primary">Save Default</button></div></form>`);
+  $("#componentForm").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget)),fm=Number(f.full_marks);if(!Number.isFinite(fm)||fm<=0)return toast("Full Marks must be positive. It is not limited to 100.");const p={subject_id:subjectId,code:f.code.trim().toUpperCase(),label:f.label.trim().toUpperCase(),full_marks:fm,weight_percent:f.weight_percent===""?null:num(f.weight_percent),credit_hour:f.credit_hour===""?null:num(f.credit_hour),pass_percent:f.pass_percent===""?null:num(f.pass_percent),sort_order:num(f.sort_order)};const res=id?await sb.from("components").update(p).eq("id",id):await sb.from("components").insert(p);if(res.error)return toast(errMsg(res.error));closeModal();toast("Component master default saved.");state.v5SubjectId=subjectId;state.v5ComponentId=id||null;await v5LoadSubjectSetup();};
+}
+
+/* Marks Entry: load only the selected examination's snapshotted components/FMs. */
+async function loadSelectedMarksSheets(){
+  const examId=num($("#markExam")?.value),cls=$("#markClass")?.value||"",subjectIds=_v4SelectedSubjectIds();
+  if(!examId)return toast("Select examination.");const area=$("#marksArea");
+  if(!subjectIds.length){state.marksContexts={};area.innerHTML=`<div class="empty">Select one or more subjects above. The student list will remain fixed on the left.</div>`;return;}
+  area.innerHTML=`<div class="empty">Loading term-specific marks-entry table…</div>`;
+  try{
+    const [{data:students,error:e1},subjects]=await Promise.all([
+      sb.from("students").select("id,roll_no,name,symbol_no,registration_no").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("roll_no").order("name"),
+      v12EffectiveSubjects(examId,cls,subjectIds)
+    ]);if(e1)throw e1;
+    const rows=students||[];if(!rows.length){area.innerHTML=`<div class="empty">No active students in ${esc(cls)}. Add/import students first.</div>`;return;}
+    const order=new Map(subjectIds.map((id,i)=>[id,i])),subs=(subjects||[]).sort((a,b)=>(order.get(num(a.id))??999)-(order.get(num(b.id))??999));
+    const compIds=subs.flatMap(s=>(s.components||[]).map(c=>c.id));let marks=[];
+    if(compIds.length){const {data,error:e3}=await sb.from("marks").select("student_id,component_id,obtained_mark,status").eq("exam_id",examId).in("student_id",rows.map(x=>x.id)).in("component_id",compIds);if(e3)throw e3;marks=data||[];}
+    const mMap=new Map(marks.map(m=>[`${m.student_id}_${m.component_id}`,m]));state.marksContexts={};subs.forEach(s=>{const comps=(s.components||[]).slice().sort((a,b)=>num(a.sort_order)-num(b.sort_order)||num(a.id)-num(b.id));state.marksContexts[num(s.id)]={examId,cls,subjectId:num(s.id),subject:s,components:comps,students:rows};});
+    const groupHeaders=subs.map(s=>{const comps=s.components||[],span=comps.length?1+comps.length*2:1;return `<th class="subject-group-head" colspan="${span}">${esc(s.name)}</th>`;}).join(""),subHeaders=subs.map(_v4SubjectHeaderCells).join("");
+    area.innerHTML=`<div class="marks-v4-statusbar"><div><b>${esc(cls)}</b> • ${rows.length} student(s) • ${subs.length} subject(s) • <b>Term-specific Full Marks</b></div><button class="btn green big" id="saveAllMatrixMarks">SAVE MARKS</button></div><div class="marks-v4-matrix-wrap"><table class="marks-v4-matrix"><thead><tr class="group-row"><th class="fixed-col select-col" rowspan="2"><input id="markAllStudents" type="checkbox" checked></th><th class="fixed-col sn-col" rowspan="2">S.N</th><th class="fixed-col name-col" rowspan="2">Student Name</th><th class="fixed-col reg-col" rowspan="2">Regd. No.</th><th class="fixed-col symbol-col" rowspan="2">Symbol No.</th>${groupHeaders}</tr><tr class="sub-row">${subHeaders}</tr></thead><tbody>${rows.map((st,ri)=>`<tr data-matrix-row="${ri}"><td class="fixed-col select-col"><input class="mark-student-select" data-row="${ri}" type="checkbox" checked></td><td class="fixed-col sn-col">${ri+1}</td><td class="fixed-col name-col"><strong>${esc(st.name||"")}</strong></td><td class="fixed-col reg-col">${esc(st.registration_no||"")}</td><td class="fixed-col symbol-col"><strong>${esc(st.symbol_no||"")}</strong></td>${subs.map(s=>_v4SubjectBodyCells(s,st,ri,mMap)).join("")}</tr>`).join("")}</tbody></table></div><div class="marks-v4-bottom-actions"><button class="btn green big" onclick="saveAllSelectedMarks()">SAVE MARKS</button></div>`;
+    $("#markAllStudents").onchange=e=>_v4SetAllStudents(e.currentTarget.checked);$$('.mark-student-select').forEach(cb=>cb.onchange=_v4UpdateAllStudentsCheckbox);$$('.subject-absent').forEach(cb=>cb.onchange=()=>_v4SubjectAbsentToggle(num(cb.dataset.subject),num(cb.dataset.row),cb.checked));$$('.mark-input').forEach(el=>{el.oninput=()=>{const abs=document.querySelector(`.subject-absent[data-subject="${el.dataset.subject}"][data-row="${el.dataset.row}"]`);if(abs?.checked&&!['ABS','AB','A','ABSENT'].includes(el.value.trim().toUpperCase())){abs.checked=false;$$(`.mark-input[data-subject="${el.dataset.subject}"][data-row="${el.dataset.row}"]`).forEach(x=>x.disabled=false);}_markCellValidate(el);};el.onpaste=_v4HandleMarksPaste;});$("#saveAllMatrixMarks").onclick=saveAllSelectedMarks;
+  }catch(e){console.error(e);area.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;}
+}
+async function loadMarksSheet(){return loadSelectedMarksSheets();}
+
+/* Result calculation: actual OM / actual term FM × 100. */
+async function calculateClassResults(examId,cls){
+  const [{data:students,error:e1},subjects,{data:marks,error:e3}]=await Promise.all([
+    sb.from("students").select("*").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("roll_no").order("name"),
+    v12EffectiveSubjects(examId,cls,null),
+    sb.from("marks").select("*").eq("exam_id",examId)
+  ]);if(e1)throw e1;if(e3)throw e3;
+  const m=new Map((marks||[]).map(x=>[`${x.student_id}_${x.component_id}`,x])),results=[];
+  for(const st of students||[]){let incomplete=false,anyNg=false,totalCredit=0,totalWgp=0;const subs=[];
+    for(const sub of subjects||[]){const comps=(sub.components||[]).sort((a,b)=>num(a.sort_order)-num(b.sort_order)),out=[];if(!comps.length)continue;
+      for(const c of comps){const mr=m.get(`${st.id}_${c.id}`);let status=mr?.status||"MISSING",obt=mr?.obtained_mark,percent=null,g={grade:"-",grade_point:null,is_ng:false};if(status==="MISSING")incomplete=true;else{percent=status==="ABS"?0:(num(obt)/num(c.full_marks)*100);g=gradeForPercent(percent,c.pass_percent);if(g.is_ng)anyNg=true;}out.push({...c,status,obtained_mark:obt,percent,...g,wgp:g.grade_point==null?null:num(c.credit_hour)*g.grade_point});}
+      const credit=out.reduce((a,c)=>a+num(c.credit_hour),0),missing=out.some(c=>c.status==="MISSING"),ng=out.some(c=>c.is_ng);let finalGrade="-",gp=null,wgp=null;if(missing||credit<=0){incomplete=true;}else{totalCredit+=credit;if(ng){finalGrade="NG";}else{wgp=out.reduce((a,c)=>a+num(c.wgp),0);gp=wgp/credit;finalGrade=gradeForGP(gp)?.grade||"-";totalWgp+=wgp;}}subs.push({...sub,components:out,credit_hour:credit,final_grade:finalGrade,final_grade_point:gp,wgp,is_ng:ng});}
+    let gpa=null,status="INCOMPLETE";if(!incomplete&&totalCredit>0){if(anyNg){gpa=0;status="NG";}else{gpa=Math.round((totalWgp/totalCredit+1e-12)*100)/100;status="PASS";}}results.push({student:st,subjects:subs,total_credit:totalCredit,total_wgp:totalWgp,gpa,gpa_display:gpa==null?"-":gpa.toFixed(2),status,incomplete,has_ng:anyNg});
+  }
+  return results;
+}
+
+async function _allClassComponents(cls,examId=null){
+  const eid=num(examId||$("#v7MkExam")?.value||$("#markExam")?.value||state.selectedExamId);if(!eid){const {data,error}=await sb.from("subjects").select("id,name,sort_order,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name");if(error)throw error;const out=[];for(const s of data||[])for(const c of (s.components||[]).sort((a,b)=>num(a.sort_order)-num(b.sort_order)))out.push({...c,subject_id:s.id,subject_name:s.name});return out;}
+  const subs=await v12EffectiveSubjects(eid,cls,null),out=[];for(const s of subs)for(const c of s.components||[])out.push({...c,subject_id:s.id,subject_name:s.name});return out;
+}
+
+async function v8ClassCompletion(examId,cls){
+  const [{data:students,error:e1},subjects,{data:marks,error:e3}]=await Promise.all([
+    sb.from("students").select("id").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true),
+    v12EffectiveSubjects(examId,cls,null),
+    sb.from("marks").select("student_id,component_id").eq("exam_id",examId)
+  ]);if(e1)throw e1;if(e3)throw e3;
+  const studentIds=new Set((students||[]).map(x=>num(x.id))),componentIds=new Set((subjects||[]).flatMap(s=>(s.components||[]).map(c=>num(c.id)))),expected=studentIds.size*componentIds.size;let entered=0;for(const m of marks||[])if(studentIds.has(num(m.student_id))&&componentIds.has(num(m.component_id)))entered++;const percent=expected?Math.round((entered/expected*100+Number.EPSILON)*10)/10:0;return {entered,expected,percent};
+}
+
+/* v12 complete backup includes term-specific assessment snapshots. */
+async function renderBackup(){
+  $("#content").innerHTML=`<div class="section"><div class="section-title"><div><h3>Online Data Backup / Restore</h3><p>Create a complete Marks/Result JSON backup, including term-wise Full Marks snapshots.</p></div></div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn green" onclick="v5CreateBackup()">Create Backup Now</button><button class="btn primary" onclick="v11ChooseRestoreBackup()">Restore Backup</button><input id="v11RestoreFile" type="file" accept=".json,application/json" class="hidden"></div><div class="info" style="margin-top:14px"><strong>v12 backup:</strong> Academic years, exams, students, subjects, marks, results and each examination's Full Marks setup are included. Old v11 backups are still supported.</div></div>`;const f=$("#v11RestoreFile");if(f)f.onchange=e=>v11RestoreBackupFile(e.currentTarget);
+}
+async function v5CreateBackup(){
+  const tables=["settings","academic_years","exams","result_publications","students","subjects","class_settings","components","exam_component_settings","marks","grading_scale","import_profiles","import_logs"],out={backup_version:3,created_at:new Date().toISOString(),project:"staugustine-marks-result",tables:{}};
+  for(const t of tables){const {data,error}=await sb.from(t).select("*");if(error)return toast(`${t}: ${errMsg(error)}`);out.tables[t]=data||[];}
+  const blob=new Blob([JSON.stringify(out,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`StAugustine_Marks_Backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);toast("Complete v12 backup downloaded successfully.");
+}
+async function v11RestoreBackupFile(input){
+  const file=input?.files?.[0];if(!file)return;let backup;try{backup=JSON.parse(await file.text());}catch(_e){input.value="";return toast("Invalid backup file: JSON could not be read.");}
+  const required=["settings","academic_years","exams","result_publications","students","subjects","class_settings","components","marks","grading_scale","import_profiles","import_logs"];
+  if(backup?.project!=="staugustine-marks-result"||!backup?.tables){input.value="";return toast("This is not a St. Augustine Marks backup file.");}const missing=required.filter(t=>!Array.isArray(backup.tables[t]));if(missing.length){input.value="";return toast(`Backup is incomplete: ${missing.join(", ")}`);}const c=backup.tables,termCount=Array.isArray(c.exam_component_settings)?c.exam_component_settings.length:"legacy backup — will rebuild term snapshots";
+  const summary=`Backup date: ${backup.created_at||"Unknown"}\nAcademic years: ${c.academic_years.length}\nStudents: ${c.students.length}\nExams: ${c.exams.length}\nSubjects: ${c.subjects.length}\nMarks: ${c.marks.length}\nTerm Full Marks snapshots: ${termCount}\n\nRESTORE WILL REPLACE THE CURRENT MARKS/RESULT DATA.\nType RESTORE to continue.`;
+  const typed=prompt(summary,"");if(typed!=="RESTORE"){input.value="";return toast("Restore cancelled.");}if(!confirm("Final confirmation: restore this backup now? Current Marks/Result data will be replaced.")){input.value="";return toast("Restore cancelled.");}toast("Restoring backup… do not close this tab.");
+  try{const {data,error}=await sb.rpc("restore_marks_backup_atomic",{p_backup:backup});if(error)throw error;state.yearId=null;await loadFoundation();await navigate("dashboard");toast(`Restore complete. ${data?.students??c.students.length} students and ${data?.marks??c.marks.length} marks restored.`);}catch(e){console.error(e);const m=errMsg(e);if(m.toLowerCase().includes("restore_marks_backup_atomic"))toast("Restore support SQL is not installed. Run TERM_WISE_FULL_MARKS_SQL.sql once in the Marks Supabase project.");else toast(`Restore failed: ${m}`);}finally{input.value="";}
+}
+
+Object.assign(window,{renderSubjects,v5LoadSubjectSetup,subjectDialog,componentDialog,v12LoadTermSetup,v12SaveTermSetup,v12CopyPreviousTermSetup,v12ApplyMasterDefaults,loadSelectedMarksSheets,loadMarksSheet,calculateClassResults,_allClassComponents,v8ClassCompletion,renderBackup,v5CreateBackup,v11RestoreBackupFile});
