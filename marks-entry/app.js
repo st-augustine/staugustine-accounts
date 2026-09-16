@@ -90,7 +90,7 @@ async function renderSubjects(){
   $("#content").innerHTML=`<div class="section"><div class="toolbar"><div class="field"><label>Class</label><select id="subjectClass">${classOptions("Class 1")}</select></div><button class="btn primary" id="addSubjectBtn">+ Subject</button><button class="btn" id="classSettingsBtn">Class Grade-Sheet Settings</button></div></div><div class="section"><div id="subjectArea"></div></div>`;
   $("#subjectClass").onchange=loadSubjects;$("#addSubjectBtn").onclick=()=>subjectDialog();$("#classSettingsBtn").onclick=classSettingsDialog;await loadSubjects();
 }
-async function loadSubjects(){const cls=$("#subjectClass").value;const {data,error}=await sb.from("subjects").select("*,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).order("sort_order").order("name");if(error)throw error;const rows=data||[];$("#subjectArea").innerHTML=rows.length?rows.map(s=>`<div class="section" style="box-shadow:none"><div class="section-title"><div><h3>${esc(s.name)}</h3><p>Total Credit Hour: ${num(s.credit_hour).toFixed(2)} ${s.active?"":" • Inactive"}</p></div><div><button class="btn small" onclick="subjectDialog(${s.id})">Edit Subject</button> <button class="btn small primary" onclick="componentDialog(${s.id})">+ Component</button> <button class="btn small red" onclick="deleteSubject(${s.id})">Delete</button></div></div>${s.components?.length?`<div class="table-wrap"><table><thead><tr><th>Code</th><th>Label</th><th>Full Marks</th><th>Weight %</th><th>Credit Hour</th><th>Pass %</th><th></th></tr></thead><tbody>${s.components.sort((a,b)=>a.sort_order-b.sort_order).map(c=>`<tr><td><strong>${esc(c.code)}</strong></td><td>${esc(c.label)}</td><td>${num(c.full_marks)}</td><td>${c.weight_percent??""}</td><td>${c.credit_hour??""}</td><td>${c.pass_percent??""}</td><td><button class="btn small" onclick="componentDialog(${s.id},${c.id})">Edit</button> <button class="btn small red" onclick="deleteComponent(${c.id})">Delete</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">No components. Add Internal / Theory / Practical etc.</div>`}</div>`).join(""):`<div class="empty">No subjects for ${esc(cls)}. You can add your own subjects.</div>`;}
+async function loadSubjects(){const cls=$("#subjectClass").value;const {data,error}=await sb.from("subjects").select("*,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).order("sort_order").order("id");if(error)throw error;const rows=data||[];$("#subjectArea").innerHTML=rows.length?rows.map(s=>`<div class="section" style="box-shadow:none"><div class="section-title"><div><h3>${esc(s.name)}</h3><p>Total Credit Hour: ${num(s.credit_hour).toFixed(2)} ${s.active?"":" • Inactive"}</p></div><div><button class="btn small" onclick="subjectDialog(${s.id})">Edit Subject</button> <button class="btn small primary" onclick="componentDialog(${s.id})">+ Component</button> <button class="btn small red" onclick="deleteSubject(${s.id})">Delete</button></div></div>${s.components?.length?`<div class="table-wrap"><table><thead><tr><th>Code</th><th>Label</th><th>Full Marks</th><th>Weight %</th><th>Credit Hour</th><th>Pass %</th><th></th></tr></thead><tbody>${s.components.sort((a,b)=>a.sort_order-b.sort_order).map(c=>`<tr><td><strong>${esc(c.code)}</strong></td><td>${esc(c.label)}</td><td>${num(c.full_marks)}</td><td>${c.weight_percent??""}</td><td>${c.credit_hour??""}</td><td>${c.pass_percent??""}</td><td><button class="btn small" onclick="componentDialog(${s.id},${c.id})">Edit</button> <button class="btn small red" onclick="deleteComponent(${c.id})">Delete</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">No components. Add Internal / Theory / Practical etc.</div>`}</div>`).join(""):`<div class="empty">No subjects for ${esc(cls)}. You can add your own subjects.</div>`;}
 async function subjectDialog(id=null){const cls=$("#subjectClass").value;let r={name:"",sort_order:1,active:true};if(id){const {data,error}=await sb.from("subjects").select("*").eq("id",id).single();if(error)return toast(errMsg(error));r=data;}openModal(id?"Edit Subject":"Add Subject",`<form id="subjectForm" class="form-grid"><div class="field"><label>Class</label><input value="${esc(cls)}" disabled></div><div class="field"><label>Subject Name</label><input name="name" value="${esc(r.name)}" required></div><div class="field"><label>Sort Order</label><input name="sort_order" type="number" value="${num(r.sort_order)||1}"></div><div class="field"><label>Active</label><select name="active"><option value="true" ${r.active?"selected":""}>Yes</option><option value="false" ${!r.active?"selected":""}>No</option></select></div><div class="info full">Subject Credit Hour is automatically calculated from component credit hours.</div><div class="form-actions full"><button type="button" class="btn" onclick="closeModal()">Cancel</button><button class="btn primary">Save Subject</button></div></form>`);$("#subjectForm").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const p={academic_year_id:state.yearId,class_name:cls,name:f.name.trim().toUpperCase(),sort_order:num(f.sort_order),active:f.active==="true"};const res=id?await sb.from("subjects").update(p).eq("id",id):await sb.from("subjects").insert({...p,credit_hour:0});if(res.error)return toast(errMsg(res.error));closeModal();toast("Subject saved.");await loadSubjects();};}
 async function deleteSubject(id){if(!confirm("Delete this subject, all components and their marks?"))return;const {error}=await sb.from("subjects").delete().eq("id",id);if(error)return toast(errMsg(error));toast("Subject deleted.");await loadSubjects();}
 async function componentDialog(subjectId,id=null){let r={code:"",label:"",full_marks:100,weight_percent:"",credit_hour:1,pass_percent:0,sort_order:1};if(id){const {data,error}=await sb.from("components").select("*").eq("id",id).single();if(error)return toast(errMsg(error));r=data;}openModal(id?"Edit Component":"Add Component",`<form id="componentForm" class="form-grid three"><div class="field"><label>Code</label><input name="code" value="${esc(r.code)}" placeholder="IN / TH / PR" required></div><div class="field"><label>Label</label><input name="label" value="${esc(r.label)}" placeholder="INTERNAL / THEORY" required></div><div class="field"><label>Full Marks</label><input name="full_marks" type="number" step="0.01" min="0.01" value="${num(r.full_marks)}" required></div><div class="field"><label>Weight %</label><input name="weight_percent" type="number" step="0.01" value="${r.weight_percent??""}"></div><div class="field"><label>Credit Hour</label><input name="credit_hour" type="number" step="0.01" min="0" value="${r.credit_hour??""}"></div><div class="field"><label>Pass %</label><input name="pass_percent" type="number" step="0.01" min="0" max="100" value="${r.pass_percent??""}"></div><div class="field"><label>Sort Order</label><input name="sort_order" type="number" value="${num(r.sort_order)||1}"></div><div class="form-actions full"><button type="button" class="btn" onclick="closeModal()">Cancel</button><button class="btn primary">Save Component</button></div></form>`);$("#componentForm").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const p={subject_id:subjectId,code:f.code.trim().toUpperCase(),label:f.label.trim().toUpperCase(),full_marks:num(f.full_marks),weight_percent:f.weight_percent===""?null:num(f.weight_percent),credit_hour:f.credit_hour===""?null:num(f.credit_hour),pass_percent:f.pass_percent===""?null:num(f.pass_percent),sort_order:num(f.sort_order)};const res=id?await sb.from("components").update(p).eq("id",id):await sb.from("components").insert(p);if(res.error)return toast(errMsg(res.error));closeModal();toast("Component saved.");await loadSubjects();};}
@@ -106,13 +106,14 @@ async function saveMarks(){const c=state.marksContext;if(!c)return;const upserts
 
 function gradeForPercent(percent,pass){if(percent==null)return {grade:"-",grade_point:null,is_ng:false};if(percent+1e-12<num(pass))return {grade:"NG",grade_point:null,is_ng:true};const g=state.grades.find(x=>percent>=num(x.min_percent)&&percent<=num(x.max_percent));if(!g)return {grade:"-",grade_point:null,is_ng:false};if(g.is_ng)return {grade:"NG",grade_point:null,is_ng:true};return {grade:g.grade,grade_point:num(g.grade_point),is_ng:false};}
 function gradeForGP(gp){const sorted=[...state.grades].filter(x=>!x.is_ng).sort((a,b)=>num(b.grade_point)-num(a.grade_point));return sorted.find(x=>gp+1e-9>=num(x.grade_point))||sorted.at(-1)||null;}
+function finalGradeForSubjectGP(gp){const raw=Number(gp);if(!Number.isFinite(raw))return "-";const x=Math.round((raw+Number.EPSILON)*100)/100;if(x>4.00)return "Error";if(x>=3.61)return "A+";if(x>=3.21)return "A";if(x>=2.81)return "B+";if(x>=2.41)return "B";if(x>=2.01)return "C+";if(x>=1.61)return "C";if(x>=1.60)return "D";return "NG";}
 async function calculateClassResults(examId,cls){const [{data:students,error:e1},{data:subjects,error:e2},{data:marks,error:e3}]=await Promise.all([sb.from("students").select("*").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("roll_no").order("name"),sb.from("subjects").select("*,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order"),sb.from("marks").select("*").eq("exam_id",examId)]);if(e1)throw e1;if(e2)throw e2;if(e3)throw e3;const m=new Map((marks||[]).map(x=>[`${x.student_id}_${x.component_id}`,x]));const results=[];for(const st of students||[]){let incomplete=false,anyNg=false,totalCredit=0,totalWgp=0;const subs=[];for(const sub of subjects||[]){const comps=(sub.components||[]).sort((a,b)=>a.sort_order-b.sort_order);const out=[];for(const c of comps){const mr=m.get(`${st.id}_${c.id}`);let status=mr?.status||"MISSING",obt=mr?.obtained_mark,percent=null,g={grade:"-",grade_point:null,is_ng:false};if(status==="MISSING")incomplete=true;else{percent=status==="ABS"?0:(num(obt)/num(c.full_marks)*100);g=gradeForPercent(percent,c.pass_percent);if(g.is_ng)anyNg=true;}out.push({...c,status,obtained_mark:obt,percent,...g,wgp:g.grade_point==null?null:num(c.credit_hour)*g.grade_point});}
-      const credit=out.reduce((a,c)=>a+num(c.credit_hour),0),missing=out.some(c=>c.status==="MISSING"),ng=out.some(c=>c.is_ng);let finalGrade="-",gp=null,wgp=null;if(missing||credit<=0){incomplete=true;}else{totalCredit+=credit;if(ng){finalGrade="NG";}else{wgp=out.reduce((a,c)=>a+num(c.wgp),0);gp=wgp/credit;finalGrade=gradeForGP(gp)?.grade||"-";totalWgp+=wgp;}}subs.push({...sub,components:out,credit_hour:credit,final_grade:finalGrade,final_grade_point:gp,wgp,is_ng:ng});}
+      const credit=out.reduce((a,c)=>a+num(c.credit_hour),0),missing=out.some(c=>c.status==="MISSING"),ng=out.some(c=>c.is_ng);let finalGrade="-",gp=null,wgp=null;if(missing||credit<=0){incomplete=true;}else{totalCredit+=credit;if(ng){finalGrade="NG";}else{wgp=out.reduce((a,c)=>a+num(c.wgp),0);gp=wgp/credit;finalGrade=finalGradeForSubjectGP(gp);totalWgp+=wgp;}}subs.push({...sub,components:out,credit_hour:credit,final_grade:finalGrade,final_grade_point:gp,wgp,is_ng:ng});}
     let gpa=null,status="INCOMPLETE";if(!incomplete&&totalCredit>0){if(anyNg){gpa=0;status="NG";}else{gpa=Math.round((totalWgp/totalCredit+1e-12)*100)/100;status="PASS";}}results.push({student:st,subjects:subs,total_credit:totalCredit,total_wgp:totalWgp,gpa,gpa_display:gpa==null?"-":gpa.toFixed(2),status,incomplete,has_ng:anyNg});}
   return results;
 }
 async function renderResults(){const exams=await examOptions();$("#content").innerHTML=`<div class="section"><div class="toolbar"><div class="field"><label>Exam</label><select id="resExam">${exams.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("")}</select></div><div class="field"><label>Class</label><select id="resClass">${classOptions("Class 1")}</select></div><button class="btn primary" id="loadResultsBtn">Calculate / Preview</button></div></div><div class="section"><div id="resultsArea"><div class="empty">Select exam and class to preview results.</div></div></div>`;$("#loadResultsBtn").onclick=refreshResults;}
-async function refreshResults(){const examId=num($("#resExam").value),cls=$("#resClass").value;if(!examId)return;$("#resultsArea").innerHTML=`<div class="empty">Calculating…</div>`;const [results,pubRes,examRes]=await Promise.all([calculateClassResults(examId,cls),sb.from("result_publications").select("*").eq("exam_id",examId).eq("class_name",cls).maybeSingle(),sb.from("exams").select("*").eq("id",examId).single()]);if(pubRes.error)throw pubRes.error;if(examRes.error)throw examRes.error;const pub=pubRes.data||{status:"DRAFT",publish_date_bs:""},exam=examRes.data;const pass=results.filter(r=>r.status==="PASS").length,ng=results.filter(r=>r.status==="NG").length,inc=results.filter(r=>r.status==="INCOMPLETE").length,complete=results.length?Math.round((results.length-inc)/results.length*100):0;state.resultContext={examId,cls,results,pub,exam};$("#resultsArea").innerHTML=`<div class="result-summary"><div class="summary-box"><small>RESULT STATUS</small><strong>${esc(pub.status)}</strong></div><div class="summary-box"><small>COMPLETION</small><strong>${complete}%</strong></div><div class="summary-box"><small>PASS</small><strong>${pass}</strong></div><div class="summary-box"><small>NG</small><strong>${ng}</strong></div><div class="summary-box"><small>INCOMPLETE</small><strong>${inc}</strong></div></div><div class="toolbar" style="margin-bottom:12px"><div class="field"><label>Date of Issue (B.S.)</label><input id="issueDate" value="${esc(pub.publish_date_bs||exam.publish_date_bs||"")}" placeholder="2083-05-30"></div><button class="btn amber" onclick="setResultStatus('FINALIZED')">Finalize</button><button class="btn green" onclick="setResultStatus('PUBLISHED')">Publish</button><button class="btn" onclick="printBulkResults()">Bulk PDF / Print All</button></div>${inc?`<div class="notice">${inc} student(s) still have missing mark components. Finalize/Publish only after checking the result.</div>`:""}<div class="table-wrap"><table><thead><tr><th>Roll</th><th>Student</th><th>Status</th><th>GPA</th><th>Total Credit</th><th></th></tr></thead><tbody>${results.map(r=>`<tr><td>${esc(r.student.roll_no||"")}</td><td><strong>${esc(r.student.name)}</strong></td><td><span class="chip ${r.status==="PASS"?"good":r.status==="NG"?"bad":"warn"}">${r.status}</span></td><td><strong>${r.gpa_display}</strong></td><td>${r.total_credit.toFixed(2)}</td><td><button class="btn small" onclick="printSingleResult(${r.student.id})">Preview / Print</button></td></tr>`).join("")}</tbody></table></div>`;}
+async function refreshResults(){const examId=num($("#resExam").value),cls=$("#resClass").value;if(!examId)return;$("#resultsArea").innerHTML=`<div class="empty">Calculating…</div>`;const [results,pubRes,examRes]=await Promise.all([calculateClassResults(examId,cls),sb.from("result_publications").select("*").eq("exam_id",examId).eq("class_name",cls).maybeSingle(),sb.from("exams").select("*").eq("id",examId).single()]);if(pubRes.error)throw pubRes.error;if(examRes.error)throw examRes.error;const pub=pubRes.data||{status:"DRAFT",publish_date_bs:""},exam=examRes.data;const pass=results.filter(r=>r.status==="PASS").length,ng=results.filter(r=>r.status==="NG").length,inc=results.filter(r=>r.status==="INCOMPLETE").length,complete=results.length?Math.round((results.length-inc)/results.length*100):0;state.resultContext={examId,cls,results,pub,exam};$("#resultsArea").innerHTML=`<div class="result-summary"><div class="summary-box"><small>RESULT STATUS</small><strong>${esc(pub.status)}</strong></div><div class="summary-box"><small>COMPLETION</small><strong>${complete}%</strong></div><div class="summary-box"><small>PASS</small><strong>${pass}</strong></div><div class="summary-box"><small>NG</small><strong>${ng}</strong></div><div class="summary-box"><small>INCOMPLETE</small><strong>${inc}</strong></div></div><div class="toolbar" style="margin-bottom:12px"><div class="field"><label>Date of Issue (B.S.)</label><input id="issueDate" value="${esc(pub.publish_date_bs||exam.publish_date_bs||"")}" placeholder="2083-05-30"></div><button class="btn amber" onclick="setResultStatus('FINALIZED')">Finalize</button><button class="btn green" onclick="setResultStatus('PUBLISHED')">Publish</button><button class="btn green" onclick="downloadBulkResultsPdf()">Download Bulk PDF</button><button class="btn" onclick="printBulkResults()">Bulk Print</button></div>${inc?`<div class="notice">${inc} student(s) still have missing mark components. Finalize/Publish only after checking the result.</div>`:""}<div class="table-wrap"><table><thead><tr><th>Roll</th><th>Student</th><th>Status</th><th>GPA</th><th>Total Credit</th><th></th></tr></thead><tbody>${results.map(r=>`<tr><td>${esc(r.student.roll_no||"")}</td><td><strong>${esc(r.student.name)}</strong></td><td><span class="chip ${r.status==="PASS"?"good":r.status==="NG"?"bad":"warn"}">${r.status}</span></td><td><strong>${r.gpa_display}</strong></td><td>${r.total_credit.toFixed(2)}</td><td><button class="btn small" onclick="printSingleResult(${r.student.id})">Preview / Print</button></td></tr>`).join("")}</tbody></table></div>`;}
 async function setResultStatus(status){const c=state.resultContext;if(!c)return;const date=($("#issueDate")?.value||"").trim();if(status==="PUBLISHED"&&!/^\d{4}-\d{2}-\d{2}$/.test(date))return toast("Enter Date of Issue in YYYY-MM-DD format before publishing.");if(status==="FINALIZED"&&c.results.some(r=>r.incomplete))return toast("Complete all marks before finalizing.");const {error}=await sb.from("result_publications").upsert({exam_id:c.examId,class_name:c.cls,status,publish_date_bs:date},{onConflict:"exam_id,class_name"});if(error)return toast(errMsg(error));if(status==="PUBLISHED")await sb.from("exams").update({status:"PUBLISHED",publish_date_bs:date}).eq("id",c.examId);toast(`Result ${status.toLowerCase()}.`);await refreshResults();}
 async function gradeSheetSettings(cls){const {data,error}=await sb.from("class_settings").select("*").eq("academic_year_id",state.yearId).eq("class_name",cls).maybeSingle();if(error)throw error;return data||{};}
 function gradeSheetHtml(result,exam,cfg,issueDate){const school=state.settings.school_name||"St Augustine Academic Foundation",addr=state.settings.school_address||"Suryodaya Municipality - 11, Tinghare";return `<div class="print-sheet"><div class="print-school"><h1>${esc(school)}</h1><p>${esc(addr)}</p><p>ESTD. ${esc(state.settings.established||"2053")}</p></div><div class="print-title">${esc(cfg.assessment_label||exam.name)}</div><div class="print-meta"><div><b>Student:</b> ${esc(result.student.name)}</div><div><b>Class:</b> ${esc(result.student.class_name)}</div><div><b>Roll No.:</b> ${esc(result.student.roll_no||"")}</div><div><b>Symbol No.:</b> ${esc(result.student.symbol_no||"")}</div><div><b>B.S. Year:</b> ${esc(cfg.bs_year_text||currentYear()?.name||"")}</div><div><b>Date of Issue:</b> ${esc(issueDate||"-")}</div></div><table class="grade-table"><thead><tr><th>Subject</th><th>Component</th><th>FM</th><th>OM</th><th>Credit</th><th>Grade</th><th>GP</th><th>WGP</th></tr></thead><tbody>${result.subjects.map(s=>s.components.map((c,i)=>`<tr>${i===0?`<td rowspan="${s.components.length}"><strong>${esc(s.name)}</strong><br>Final: ${esc(s.final_grade)}</td>`:""}<td>${esc(c.code)}</td><td class="center">${num(c.full_marks)}</td><td class="center">${c.status==="ABS"?"ABS":c.status==="MISSING"?"-":num(c.obtained_mark)}</td><td class="center">${num(c.credit_hour).toFixed(2)}</td><td class="center">${esc(c.grade)}</td><td class="center">${c.grade_point==null?"-":num(c.grade_point).toFixed(2)}</td><td class="center">${c.wgp==null?"-":num(c.wgp).toFixed(2)}</td></tr>`).join("")).join("")}<tr><td colspan="4"><strong>Overall Result: ${esc(result.status)}</strong></td><td><strong>${result.total_credit.toFixed(2)}</strong></td><td colspan="2" class="right"><strong>GPA</strong></td><td class="center"><strong>${result.gpa_display}</strong></td></tr></tbody></table><div class="print-foot"><span>Prepared By: ${esc(state.settings.prepared_by||"")}</span><span>Class Teacher: ${esc(cfg.class_teacher||"")}</span><span>Principal: ${esc(state.settings.principal_name||"")}</span></div></div>`;}
@@ -172,7 +173,7 @@ async function renderStudents(){
   $("#addStudentBtn").onclick=()=>studentDialog();$("#studentRefresh").onclick=loadStudents;$("#studentClass").onchange=loadStudents;$("#studentSearch").oninput=()=>{clearTimeout(renderStudents._t);renderStudents._t=setTimeout(loadStudents,250)};await loadStudents();
 }
 
-async function _allClassComponents(cls){const {data,error}=await sb.from("subjects").select("id,name,sort_order,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name");if(error)throw error;const out=[];for(const s of data||[]){for(const c of (s.components||[]).sort((a,b)=>num(a.sort_order)-num(b.sort_order)))out.push({...c,subject_id:s.id,subject_name:s.name});}return out;}
+async function _allClassComponents(cls){const {data,error}=await sb.from("subjects").select("id,name,sort_order,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");if(error)throw error;const out=[];for(const s of data||[]){for(const c of (s.components||[]).sort((a,b)=>num(a.sort_order)-num(b.sort_order)))out.push({...c,subject_id:s.id,subject_name:s.name});}return out;}
 
 async function exportMarksLedger(includeExisting=true){const examId=num($("#markExam")?.value),cls=$("#markClass")?.value||"";if(!examId||!cls)return toast("Select examination and class first.");const [{data:exam,error:ee},{data:students,error:se},comps]=await Promise.all([sb.from("exams").select("id,name").eq("id",examId).single(),sb.from("students").select("id,roll_no,name,symbol_no,registration_no").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("roll_no").order("name"),_allClassComponents(cls)]);if(ee)throw ee;if(se)throw se;if(!students?.length)return toast("No students in this class.");if(!comps.length)return toast("No subjects/components in this class.");let marks=[];if(includeExisting){const {data,error}=await sb.from("marks").select("student_id,component_id,obtained_mark,status").eq("exam_id",examId);if(error)throw error;marks=data||[];}const mm=new Map(marks.map(m=>[`${m.student_id}_${m.component_id}`,m]));const headers=["Roll No","Student Name","Symbol No","Registration No",...comps.map(c=>`${c.subject_name} ${c.code}`)];const rows=[[`${cls} | ${exam.name} | MARKS LEDGER`],[],headers];for(const st of students){const row=[st.roll_no||"",st.name||"",st.symbol_no||"",st.registration_no||""];for(const c of comps){const m=mm.get(`${st.id}_${c.id}`);row.push(m?(m.status==="ABS"?"ABS":m.obtained_mark??""):"");}rows.push(row);}const wb=_newWorkbookFromAOA("Marks Ledger",rows,headers.map(h=>Math.max(12,Math.min(26,String(h).length+3))));_saveWorkbook(wb,`${includeExisting?"Marks_Ledger":"Marks_Template"}_${_safeFilename(cls)}_${_safeFilename(exam.name)}.xlsx`);}
 
@@ -182,7 +183,7 @@ async function importMarksLedger(){const examId=num($("#markExam")?.value),cls=$
     await _logImport("MARKS",file,examId,cls,importedRows,0,errs.length);toast(`Marks Excel: ${upserts.length} cell(s) imported${errs.length?`, ${errs.length} error(s)`:""}.`);if(errs.length)openModal("Marks Import Report",`<div class="notice">Imported mark cells: ${upserts.length}<br>Rows accepted: ${importedRows}<br>Errors: ${errs.length}</div><div class="table-wrap"><table><tbody>${errs.slice(0,80).map(x=>`<tr><td>${esc(x)}</td></tr>`).join("")}</tbody></table></div>`);await loadMarksSheet();});}
 
 function _markCellValidate(el){const raw=el.value.trim(),full=num(el.dataset.full);let ok=true;if(raw&&!["ABS","AB","A","ABSENT"].includes(raw.toUpperCase())){const v=Number(raw);ok=Number.isFinite(v)&&v>=0&&v<=full;}el.classList.toggle("invalid",!ok);el.classList.toggle("abs",["ABS","AB","A","ABSENT"].includes(raw.toUpperCase()));return ok;}
-function _subjectSummaryForRow(rowIndex){const c=state.marksContext;if(!c)return null;let complete=true,anyNg=false,totalCredit=0,totalWgp=0;for(let ci=0;ci<c.components.length;ci++){const el=document.querySelector(`.mark-input[data-row="${rowIndex}"][data-col="${ci}"]`);if(!el)return null;const raw=el.value.trim().toUpperCase(),comp=c.components[ci];if(!raw){complete=false;continue;}let pct=0;if(["ABS","AB","A","ABSENT"].includes(raw))pct=0;else{const v=Number(raw);if(!Number.isFinite(v)||v<0||v>num(comp.full_marks))return {invalid:true};pct=num(comp.full_marks)?v/num(comp.full_marks)*100:0;}const ch=num(comp.credit_hour);totalCredit+=ch;const g=gradeForPercent(pct,comp.pass_percent);if(g.is_ng||g.grade_point==null){anyNg=true;continue;}totalWgp+=ch*num(g.grade_point);}if(!complete||totalCredit<=0)return {gp:null,credit:null,wgp:null,grade:"-"};if(anyNg)return {gp:null,credit:totalCredit,wgp:null,grade:"NG"};const gp=totalWgp/totalCredit;return {gp,credit:totalCredit,wgp:totalWgp,grade:gradeForGP(gp)?.grade||"-"};}
+function _subjectSummaryForRow(rowIndex){const c=state.marksContext;if(!c)return null;let complete=true,anyNg=false,totalCredit=0,totalWgp=0;for(let ci=0;ci<c.components.length;ci++){const el=document.querySelector(`.mark-input[data-row="${rowIndex}"][data-col="${ci}"]`);if(!el)return null;const raw=el.value.trim().toUpperCase(),comp=c.components[ci];if(!raw){complete=false;continue;}let pct=0;if(["ABS","AB","A","ABSENT"].includes(raw))pct=0;else{const v=Number(raw);if(!Number.isFinite(v)||v<0||v>num(comp.full_marks))return {invalid:true};pct=num(comp.full_marks)?v/num(comp.full_marks)*100:0;}const ch=num(comp.credit_hour);totalCredit+=ch;const g=gradeForPercent(pct,comp.pass_percent);if(g.is_ng||g.grade_point==null){anyNg=true;continue;}totalWgp+=ch*num(g.grade_point);}if(!complete||totalCredit<=0)return {gp:null,credit:null,wgp:null,grade:"-"};if(anyNg)return {gp:null,credit:totalCredit,wgp:null,grade:"NG"};const gp=totalWgp/totalCredit;return {gp,credit:totalCredit,wgp:totalWgp,grade:finalGradeForSubjectGP(gp)};}
 function _refreshSubjectSummary(rowIndex){const s=_subjectSummaryForRow(rowIndex);const row=document.querySelector(`tr[data-mark-row="${rowIndex}"]`);if(!row||!s)return;const vals=s.invalid?["!","!","!","!"]:[s.gp==null?"-":s.gp.toFixed(2),s.credit==null?"-":s.credit.toFixed(2),s.wgp==null?"-":s.wgp.toFixed(2),s.grade];row.querySelectorAll(".mark-summary").forEach((x,i)=>x.textContent=vals[i]);}
 function _handleMarksPaste(ev){ev.preventDefault();const start=ev.currentTarget;const text=ev.clipboardData?.getData("text/plain")||"";const parsed=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n").filter((line,i,a)=>!(i===a.length-1&&line==="")).map(line=>line.split("\t"));if(!parsed.length)return;const r0=num(start.dataset.row),c0=num(start.dataset.col);let filled=0,invalid=0;const touched=new Set();for(let ro=0;ro<parsed.length;ro++){for(let co=0;co<parsed[ro].length;co++){const el=document.querySelector(`.mark-input[data-row="${r0+ro}"][data-col="${c0+co}"]`);if(!el)continue;el.value=String(parsed[ro][co]??"").trim();if(!_markCellValidate(el))invalid++;filled++;touched.add(r0+ro);}}touched.forEach(_refreshSubjectSummary);toast(`Pasted ${filled} mark cell(s)${invalid?`; ${invalid} invalid highlighted in red`:""}.`);}
 
@@ -192,7 +193,7 @@ async function renderMarks(){
   if(!exams.length){$("#marksArea").innerHTML=`<div class="empty">No examination is configured. Add an examination from Settings first.</div>`;return;}
   $("#markClass").onchange=async()=>{await loadMarkSubjects();};$("#markSubject").onchange=()=>{$("#marksArea").innerHTML=`<div class="empty">Click Load Marks Sheet.</div>`};$("#loadMarksBtn").onclick=loadMarksSheet;await loadMarkSubjects();
 }
-async function loadMarkSubjects(){const cls=$("#markClass")?.value||"";const {data,error}=await sb.from("subjects").select("id,name").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name");if(error){toast(errMsg(error));return;}const s=$("#markSubject");if(!s)return;s.innerHTML=(data||[]).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("");if(!(data||[]).length&&$("#marksArea"))$("#marksArea").innerHTML=`<div class="empty">No active subjects for ${esc(cls)}. Add subjects/components in Subject Setup first.</div>`;}
+async function loadMarkSubjects(){const cls=$("#markClass")?.value||"";const {data,error}=await sb.from("subjects").select("id,name").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");if(error){toast(errMsg(error));return;}const s=$("#markSubject");if(!s)return;s.innerHTML=(data||[]).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("");if(!(data||[]).length&&$("#marksArea"))$("#marksArea").innerHTML=`<div class="empty">No active subjects for ${esc(cls)}. Add subjects/components in Subject Setup first.</div>`;}
 async function loadMarksSheet(){const examId=num($("#markExam")?.value),cls=$("#markClass")?.value||"",subjectId=num($("#markSubject")?.value);if(!examId)return toast("Select examination.");if(!subjectId)return toast("This class has no subject. Add Subject/Component first.");$("#marksArea").innerHTML=`<div class="empty">Loading marks sheet…</div>`;const [{data:students,error:e1},{data:components,error:e2},{data:subject,error:e4}]=await Promise.all([sb.from("students").select("id,roll_no,name,symbol_no").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("roll_no").order("name"),sb.from("components").select("*").eq("subject_id",subjectId).order("sort_order").order("id"),sb.from("subjects").select("id,name,credit_hour").eq("id",subjectId).single()]);if(e1)throw e1;if(e2)throw e2;if(e4)throw e4;const rows=students||[],comps=components||[];if(!rows.length){$("#marksArea").innerHTML=`<div class="empty">No active students in ${esc(cls)}. Add/import students first.</div>`;return;}if(!comps.length){$("#marksArea").innerHTML=`<div class="empty">${esc(subject.name)} has no components. Add Internal/Theory/Practical components first.</div>`;return;}const studentIds=rows.map(x=>x.id),compIds=comps.map(x=>x.id);let req=sb.from("marks").select("*").eq("exam_id",examId).in("student_id",studentIds).in("component_id",compIds);const {data:marks,error:e3}=await req;if(e3)throw e3;const mMap=new Map((marks||[]).map(m=>[`${m.student_id}_${m.component_id}`,m]));state.marksContext={examId,cls,subjectId,subject,components:comps,students:rows};const totalCh=comps.reduce((a,c)=>a+num(c.credit_hour),0);$("#marksArea").innerHTML=`<div class="section-title"><div><h3>${esc(subject.name)}</h3><p>Total Credit Hour: ${totalCh.toFixed(2)} • ${rows.length} student(s)</p></div><button id="saveMarksBtn" class="btn green">SAVE ALL MARKS</button></div><div class="table-wrap marks-grid-wrap"><table class="marks-grid"><thead><tr><th>Roll</th><th>Student Name</th>${comps.map(c=>`<th class="center">${esc(c.code)} / ${num(c.full_marks)}<br><small>CH ${num(c.credit_hour)}</small></th>`).join("")}<th class="center">Final GP</th><th class="center">Total Credit</th><th class="center">Total WGP</th><th class="center">Final Grade</th></tr></thead><tbody>${rows.map((s,ri)=>`<tr data-mark-row="${ri}"><td>${esc(s.roll_no||"")}</td><td><strong>${esc(s.name)}</strong></td>${comps.map((c,ci)=>{const m=mMap.get(`${s.id}_${c.id}`),v=m?(m.status==="ABS"?"ABS":m.obtained_mark??""):"";return `<td class="center"><input class="mark-input ${v==="ABS"?"abs":""}" data-row="${ri}" data-col="${ci}" data-student="${s.id}" data-component="${c.id}" data-full="${num(c.full_marks)}" value="${esc(v)}" autocomplete="off"></td>`}).join("")}<td class="center mark-summary">-</td><td class="center mark-summary">-</td><td class="center mark-summary">-</td><td class="center mark-summary">-</td></tr>`).join("")}</tbody></table></div>`;$("#saveMarksBtn").onclick=saveMarks;$$('.mark-input').forEach(el=>{el.oninput=()=>{_markCellValidate(el);_refreshSubjectSummary(num(el.dataset.row));};el.onpaste=_handleMarksPaste;});rows.forEach((_,i)=>_refreshSubjectSummary(i));}
 async function saveMarks(){const c=state.marksContext;if(!c)return;const upserts=[],deletes=[];let invalid=0;for(const el of $$(".mark-input")){if(!_markCellValidate(el)){invalid++;continue;}const raw=el.value.trim(),student_id=num(el.dataset.student),component_id=num(el.dataset.component),full=num(el.dataset.full);if(!raw){deletes.push([student_id,component_id]);continue;}if(["ABS","AB","A","ABSENT"].includes(raw.toUpperCase())){upserts.push({exam_id:c.examId,student_id,component_id,obtained_mark:null,status:"ABS"});continue;}const mark=Number(raw);if(!Number.isFinite(mark)||mark<0||mark>full){invalid++;continue;}upserts.push({exam_id:c.examId,student_id,component_id,obtained_mark:mark,status:"MARK"});}if(invalid)return toast(`${invalid} invalid mark cell(s). Correct the red cells before saving.`);const b=$("#saveMarksBtn");if(b)b.disabled=true;try{for(let i=0;i<upserts.length;i+=500){const {error}=await sb.from("marks").upsert(upserts.slice(i,i+500),{onConflict:"exam_id,student_id,component_id"});if(error)throw error;}for(const [sid,cid] of deletes){const {error}=await sb.from("marks").delete().eq("exam_id",c.examId).eq("student_id",sid).eq("component_id",cid);if(error)throw error;}toast(`Marks saved successfully (${upserts.length} filled cell(s)).`);}catch(e){console.error(e);toast(errMsg(e));}finally{if(b)b.disabled=false;}}
 
@@ -277,7 +278,7 @@ async function renderMarks(){
 
 async function loadMarkSubjects(){
   const cls=$("#markClass")?.value||"";
-  const {data,error}=await sb.from("subjects").select("id,name,sort_order").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name");
+  const {data,error}=await sb.from("subjects").select("id,name,sort_order").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");
   if(error){toast(errMsg(error));return;}
   const box=$("#markSubjectChecks");
   if(!box)return;
@@ -319,7 +320,7 @@ function _subjectSummaryForRow(subjectId,rowIndex){
   if(!complete||totalCredit<=0)return {gp:null,credit:null,wgp:null,grade:"-"};
   if(anyNg)return {gp:null,credit:totalCredit,wgp:null,grade:"NG"};
   const gp=totalWgp/totalCredit;
-  return {gp,credit:totalCredit,wgp:totalWgp,grade:gradeForGP(gp)?.grade||"-"};
+  return {gp,credit:totalCredit,wgp:totalWgp,grade:finalGradeForSubjectGP(gp)};
 }
 
 function _refreshSubjectSummary(subjectId,rowIndex){
@@ -569,7 +570,7 @@ async function renderMarks(){
 
 async function loadMarkSubjects(){
   const cls=$("#markClass")?.value||"";
-  const {data,error}=await sb.from("subjects").select("id,name,sort_order").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name");
+  const {data,error}=await sb.from("subjects").select("id,name,sort_order").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");
   if(error){toast(errMsg(error));return;}
   const box=$("#markSubjectChecks");
   if(!box)return;
@@ -835,7 +836,7 @@ async function renderSubjects(){
 }
 async function v5LoadSubjectSetup(){
   const cls=$("#subjectClass").value;
-  const [{data:cfg,error:ce},{data:subs,error:se}]=await Promise.all([sb.from("class_settings").select("*").eq("academic_year_id",state.yearId).eq("class_name",cls).maybeSingle(),sb.from("subjects").select("*,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name")]);if(ce)throw ce;if(se)throw se;
+  const [{data:cfg,error:ce},{data:subs,error:se}]=await Promise.all([sb.from("class_settings").select("*").eq("academic_year_id",state.yearId).eq("class_name",cls).maybeSingle(),sb.from("subjects").select("*,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id")]);if(ce)throw ce;if(se)throw se;
   $("#classTeacherInput").value=cfg?.class_teacher||"";const list=subs||[];if(!list.find(x=>num(x.id)===num(state.v5SubjectId)))state.v5SubjectId=list[0]?.id||null;
   $("#subjectList").innerHTML=`<div class="table-wrap"><table><thead><tr><th>Subject</th><th class="center">Total Credit Hour</th></tr></thead><tbody>${list.map(s=>`<tr class="${num(s.id)===num(state.v5SubjectId)?"subject-row-selected":""}" data-sid="${s.id}" style="cursor:pointer"><td>${esc(s.name)}</td><td class="center">${num(s.credit_hour).toFixed(2)}</td></tr>`).join("")}</tbody></table></div>`;
   $$(`#subjectList tr[data-sid]`).forEach(r=>r.onclick=()=>{state.v5SubjectId=num(r.dataset.sid);state.v5ComponentId=null;v5LoadSubjectSetup();});
@@ -856,7 +857,7 @@ async function renderMarks(){
   $("#content").innerHTML=`<div class="master-toolbar"><div class="toolbar"><div class="field" style="min-width:300px"><label>Examination</label><select id="markExam">${exams.map(e=>`<option value="${e.id}" ${num(e.id)===num(state.selectedExamId)?"selected":""}>${esc(e.name)}</option>`).join("")}</select></div><div class="field"><label>Class</label><select id="markClass">${classOptions(defaultClass)}</select></div><button class="btn primary" id="loadMarksBtn">Load Sheet</button><button class="btn" onclick="importMarksLedger()">Import Excel</button><button class="btn" onclick="exportMarksLedger(true)">Export Ledger</button><button class="btn" onclick="exportMarksLedger(false)">Blank Template</button></div><div id="markSubjectPicker" class="subject-picker"></div></div><div class="section" style="min-height:620px"><div class="marks-help">Excel Copy/Paste: copy one or more marks columns in Excel, click the first target mark cell here, then press Ctrl+V.</div><div id="marksArea"><div class="empty">Choose examination, class and one or more subjects, then click Load Sheet.</div></div></div>`;
   $("#markClass").onchange=loadMarkSubjects;$("#loadMarksBtn").onclick=loadSelectedMarksSheets;await loadMarkSubjects();
 }
-async function loadMarkSubjects(){const cls=$("#markClass")?.value||"";const {data,error}=await sb.from("subjects").select("id,name").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name");if(error)return toast(errMsg(error));const host=$("#markSubjectPicker");if(!host)return;host.innerHTML=`<label><input id="markAllSubjects" type="checkbox"> All</label>${(data||[]).map(s=>`<label><input class="mark-subject-choice" type="checkbox" value="${s.id}"> ${esc(s.name)}</label>`).join("")}`;$("#markAllSubjects").onchange=e=>{$$(".mark-subject-choice").forEach(x=>x.checked=e.currentTarget.checked)};if(!(data||[]).length)$("#marksArea").innerHTML=`<div class="empty">No active subjects for ${esc(cls)}. Add subjects/components in Subject & Credit Setup first.</div>`;}
+async function loadMarkSubjects(){const cls=$("#markClass")?.value||"";const {data,error}=await sb.from("subjects").select("id,name").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");if(error)return toast(errMsg(error));const host=$("#markSubjectPicker");if(!host)return;host.innerHTML=`<label><input id="markAllSubjects" type="checkbox"> All</label>${(data||[]).map(s=>`<label><input class="mark-subject-choice" type="checkbox" value="${s.id}"> ${esc(s.name)}</label>`).join("")}`;$("#markAllSubjects").onchange=e=>{$$(".mark-subject-choice").forEach(x=>x.checked=e.currentTarget.checked)};if(!(data||[]).length)$("#marksArea").innerHTML=`<div class="empty">No active subjects for ${esc(cls)}. Add subjects/components in Subject & Credit Setup first.</div>`;}
 function _v4SelectedSubjectIds(){return $$(".mark-subject-choice:checked").map(x=>num(x.value)).filter(Boolean);}
 
 async function renderImportMarksLedger(){
@@ -879,7 +880,7 @@ async function refreshResults(){
   const pass=results.filter(r=>r.status==="PASS").length,ng=results.filter(r=>r.status==="NG").length,inc=results.filter(r=>r.status==="INCOMPLETE").length,complete=results.length?Math.round((results.length-inc)/results.length*100):0;
   state.resultContext={examId,cls,results,pub,exam};if($("#issueDate"))$("#issueDate").value=pub.publish_date_bs||exam.publish_date_bs||"";
   const color={DRAFT:["#EEF2F7","var(--navy2)"],CALCULATED:["#EAF2FF","var(--blue2)"],FINALIZED:["#FFF4E8","var(--orange)"],PUBLISHED:["#E9F8F2","var(--green)"]}[pub.status]||["#EEF2F7","var(--navy2)"];
-  $("#resultsStatusHost").innerHTML=`<div class="result-status-card"><span class="result-status-badge" style="background:${color[0]};color:${color[1]}">${esc(pub.status||"DRAFT")}</span><span class="result-status-text">Marks ${complete}% complete • Students ${results.length} • Pass ${pass} • NG ${ng} • Incomplete ${inc}</span><div class="result-status-actions"><button class="btn" onclick="v5ExportResultsExcel()">Export Result Excel</button><button class="btn" onclick="selectAllResultStudents(true)">Select All</button><button class="btn" onclick="selectAllResultStudents(false)">Clear</button><button class="btn" onclick="printBulkResults()">Bulk Grade-Sheets PDF</button></div></div>`;
+  $("#resultsStatusHost").innerHTML=`<div class="result-status-card"><span class="result-status-badge" style="background:${color[0]};color:${color[1]}">${esc(pub.status||"DRAFT")}</span><span class="result-status-text">Marks ${complete}% complete • Students ${results.length} • Pass ${pass} • NG ${ng} • Incomplete ${inc}</span><div class="result-status-actions"><button class="btn" onclick="v5ExportResultsExcel()">Export Result Excel</button><button class="btn" onclick="selectAllResultStudents(true)">Select All</button><button class="btn" onclick="selectAllResultStudents(false)">Clear</button><button class="btn green" onclick="downloadBulkResultsPdf()">Download Bulk PDF</button><button class="btn" onclick="printBulkResults()">Bulk Print</button></div></div>`;
   $("#resultsArea").innerHTML=`${inc?`<div class="notice">${inc} student result(s) are incomplete. Finalize/Publish after completing all required marks.</div>`:""}<div class="table-wrap"><table><thead><tr><th class="center" style="width:38px"><input id="resultSelectAll" type="checkbox" aria-label="Select all students"></th><th class="center">Roll</th><th>Student Name</th><th class="center">Total Credit</th><th class="center">Total WGP</th><th class="center">GPA</th><th class="center">Result</th><th class="center">Preview</th></tr></thead><tbody>${results.map(r=>`<tr><td class="center"><input class="result-student-check" type="checkbox" value="${r.student.id}" aria-label="Select ${esc(r.student.name)}"></td><td class="center">${esc(r.student.roll_no||"")}</td><td>${esc(r.student.name)}</td><td class="center">${r.total_credit.toFixed(2)}</td><td class="center">${r.total_wgp.toFixed(2)}</td><td class="center">${r.gpa_display}</td><td class="center">${esc(r.status)}</td><td class="center"><button class="btn small" onclick="printSingleResult(${r.student.id})">Preview Selected</button></td></tr>`).join("")}</tbody></table></div>`;
   const all=$("#resultSelectAll");if(all)all.onchange=e=>selectAllResultStudents(!!e.currentTarget.checked);
   $$(".result-student-check").forEach(x=>x.onchange=updateResultSelectionState);
@@ -1263,7 +1264,7 @@ async function refreshResults(){
   if($("#issueDate"))$("#issueDate").value=pub.publish_date_bs||"";
   const status=String(pub.status||derived||"DRAFT").toUpperCase();
   const color={DRAFT:["#EEF2F7","var(--navy2)"],CALCULATED:["#EAF2FF","var(--blue2)"],FINALIZED:["#FFF4E8","var(--orange)"],PUBLISHED:["#E9F8F2","var(--green)"]}[status]||["#EEF2F7","var(--navy2)"];
-  $("#resultsStatusHost").innerHTML=`<div class="result-status-card"><span class="result-status-badge" style="background:${color[0]};color:${color[1]}">${esc(status)}</span><span class="result-status-text">Marks ${completion.percent.toFixed(1)}% complete (${completion.entered}/${completion.expected}) • Students ${results.length} • Pass ${pass} • NG ${ng} • Incomplete ${inc}</span><div class="result-status-actions"><span id="resultSelectionCount" style="font-size:11px;color:var(--muted);margin-right:3px">0 selected</span><button class="btn" onclick="v5ExportResultsExcel()">Export Result Excel</button><button class="btn" onclick="selectAllResultStudents(true)">Select All</button><button class="btn" onclick="selectAllResultStudents(false)">Clear</button><button class="btn" onclick="printBulkResults()">Bulk Grade-Sheets PDF</button></div></div>`;
+  $("#resultsStatusHost").innerHTML=`<div class="result-status-card"><span class="result-status-badge" style="background:${color[0]};color:${color[1]}">${esc(status)}</span><span class="result-status-text">Marks ${completion.percent.toFixed(1)}% complete (${completion.entered}/${completion.expected}) • Students ${results.length} • Pass ${pass} • NG ${ng} • Incomplete ${inc}</span><div class="result-status-actions"><span id="resultSelectionCount" style="font-size:11px;color:var(--muted);margin-right:3px">0 selected</span><button class="btn" onclick="v5ExportResultsExcel()">Export Result Excel</button><button class="btn" onclick="selectAllResultStudents(true)">Select All</button><button class="btn" onclick="selectAllResultStudents(false)">Clear</button><button class="btn green" onclick="downloadBulkResultsPdf()">Download Bulk PDF</button><button class="btn" onclick="printBulkResults()">Bulk Print</button></div></div>`;
   $("#resultsArea").innerHTML=`${!results.length?`<div class="notice">No active students were found in ${esc(cls)}.</div>`:""}${inc?`<div class="notice">${inc} student result(s) are incomplete. Finalize/Publish after completing all required marks.</div>`:""}<div class="table-wrap"><table><thead><tr><th class="center" style="width:38px"><input id="resultSelectAll" type="checkbox" aria-label="Select all students"></th><th class="center">Roll</th><th>Student Name</th><th class="center">Total Credit</th><th class="center">Total WGP</th><th class="center">GPA</th><th class="center">Result</th><th class="center">Preview</th></tr></thead><tbody>${results.map(r=>`<tr><td class="center"><input class="result-student-check" type="checkbox" value="${r.student.id}" aria-label="Select ${esc(r.student.name)}"></td><td class="center">${esc(r.student.roll_no||"")}</td><td>${esc(r.student.name)}</td><td class="center">${r.total_credit.toFixed(2)}</td><td class="center">${r.total_wgp.toFixed(2)}</td><td class="center">${r.gpa_display}</td><td class="center">${esc(r.status)}</td><td class="center"><button class="btn small" onclick="printSingleResult(${r.student.id})">Preview / Print</button></td></tr>`).join("")}</tbody></table></div>`;
   const all=$("#resultSelectAll");if(all)all.onchange=e=>selectAllResultStudents(!!e.currentTarget.checked);
   $$(".result-student-check").forEach(x=>x.onchange=updateResultSelectionState);
@@ -1291,7 +1292,7 @@ async function setResultStatus(status){
 /* Original v1.4.3-style detailed result Excel: each subject GP/Credit/WGP/Grade + totals. */
 async function v5ExportResultsExcel(){
   const c=state.resultContext;if(!c)return toast("Calculate results first.");
-  const {data:subjects,error}=await sb.from("subjects").select("id,name,sort_order").eq("academic_year_id",state.yearId).eq("class_name",c.cls).eq("active",true).order("sort_order").order("name");
+  const {data:subjects,error}=await sb.from("subjects").select("id,name,sort_order").eq("academic_year_id",state.yearId).eq("class_name",c.cls).eq("active",true).order("sort_order").order("id");
   if(error)return toast(errMsg(error));
   const subs=subjects||[],headers=["Roll No","Student Name"];
   for(const s of subs)headers.push(`${s.name} GP`,`${s.name} Credit`,`${s.name} WGP`,`${s.name} Grade`);
@@ -1329,10 +1330,45 @@ async function printBulkResults(){
   await printGradeSheetHtml(`<div class="print-batch">${chosen.map(r=>gradeSheetHtml(r,c.exam,cfg,issue)).join("")}</div>`);await navigate("results");
 }
 
-Object.assign(window,{renderResults,refreshResults,setResultStatus,v5ExportResultsExcel,printSingleResult,printBulkResults});
+async function downloadBulkResultsPdf(){
+  const c=state.resultContext;if(!c)return toast("Calculate results first.");
+  const ids=selectedResultStudentIds();if(!ids.length)return toast("Select the student(s) to download, or click Select All.");
+  const issue=($("#issueDate")?.value||c.pub.publish_date_bs||"").trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(issue))return toast("Enter Date of Issue in YYYY-MM-DD format before downloading Bulk PDF.");
+  if(typeof window.html2pdf!=="function")return toast("PDF library is still loading. Please wait a moment and try again.");
+  const cfg=await gradeSheetSettings(c.cls);
+  const chosen=c.results.filter(r=>ids.includes(num(r.student.id)));
+  if(!chosen.length)return toast("No selected student results found.");
+  const host=document.createElement("div");
+  host.className="print-batch bulk-pdf-download-host";
+  host.style.position="fixed";host.style.left="-100000px";host.style.top="0";host.style.width="210mm";host.style.background="#fff";host.style.zIndex="-1";
+  host.innerHTML=chosen.map(r=>gradeSheetHtml(r,c.exam,cfg,issue)).join("");
+  document.body.appendChild(host);
+  try{
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    await waitForPrintImages(host);
+    const filename=`Result_${_safeFilename(c.cls)}_${_safeFilename(c.exam.name)}_${_safeFilename(issue)}.pdf`;
+    const options={
+      margin:0,
+      filename,
+      image:{type:"jpeg",quality:0.98},
+      html2canvas:{scale:1.6,useCORS:true,backgroundColor:"#ffffff",logging:false},
+      jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},
+      pagebreak:{mode:["css","legacy"]}
+    };
+    toast(`Preparing ${chosen.length} grade-sheet(s) PDF…`);
+    await window.html2pdf().set(options).from(host).save();
+    toast(`Bulk Result PDF downloaded: ${chosen.length} student(s).`);
+  }catch(error){
+    console.error(error);
+    toast(`Bulk PDF could not be downloaded: ${errMsg(error)}`);
+  }finally{host.remove();}
+}
+
+Object.assign(window,{renderResults,refreshResults,setResultStatus,v5ExportResultsExcel,printSingleResult,printBulkResults,downloadBulkResultsPdf});
 
 /* ============================================================
-   v12 — TERM-WISE FULL MARKS / ASSESSMENT SNAPSHOTS
+   v13 — TERM-WISE ASSESSMENT + COMPONENT CREDIT + BULK PDF
    ------------------------------------------------------------
    Subject/components remain reusable master templates.
    Actual FM / Pass % / Credit / Weight are stored per Examination.
@@ -1352,7 +1388,7 @@ async function v12EnsureExamSettings(examId,cls){
   const {error}=await sb.rpc("ensure_exam_component_settings",{p_exam_id:examId,p_class_name:cls});
   if(error){
     const msg=String(error.message||"");
-    if(/ensure_exam_component_settings|schema cache|function/i.test(msg))throw new Error("Term-wise Full Marks SQL is not installed. Run TERM_WISE_FULL_MARKS_SQL.sql once in the Marks Supabase project.");
+    if(/ensure_exam_component_settings|schema cache|function/i.test(msg))throw new Error("Term-wise Full Marks SQL is not installed. Run MARKS_WORKFLOW_V15_SQL.sql once in the Marks Supabase project.");
     throw error;
   }
   return lock;
@@ -1360,7 +1396,7 @@ async function v12EnsureExamSettings(examId,cls){
 
 async function v12EffectiveSubjects(examId,cls,subjectIds=null,{ensure=true}={}){
   if(ensure)await v12EnsureExamSettings(examId,cls);
-  let req=sb.from("subjects").select("id,name,credit_hour,sort_order,active,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name");
+  let req=sb.from("subjects").select("id,name,credit_hour,sort_order,active,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");
   if(Array.isArray(subjectIds)&&subjectIds.length)req=req.in("id",subjectIds);
   const {data:subjects,error}=await req;if(error)throw error;
   const list=subjects||[],compIds=list.flatMap(s=>(s.components||[]).map(c=>num(c.id))).filter(Boolean);
@@ -1368,7 +1404,7 @@ async function v12EffectiveSubjects(examId,cls,subjectIds=null,{ensure=true}={})
   const {data:settings,error:se}=await sb.from("exam_component_settings").select("exam_id,component_id,full_marks,weight_percent,credit_hour,pass_percent").eq("exam_id",examId).in("component_id",compIds);
   if(se){
     const msg=String(se.message||"");
-    if(/exam_component_settings|schema cache|relation/i.test(msg))throw new Error("Term-wise Full Marks SQL is not installed. Run TERM_WISE_FULL_MARKS_SQL.sql once in the Marks Supabase project.");
+    if(/exam_component_settings|schema cache|relation/i.test(msg))throw new Error("Term-wise Full Marks SQL is not installed. Run MARKS_WORKFLOW_V15_SQL.sql once in the Marks Supabase project.");
     throw se;
   }
   const sm=new Map((settings||[]).map(x=>[num(x.component_id),x]));
@@ -1382,7 +1418,7 @@ async function v12InjectTermSetupPanel(){
   const split=document.querySelector(".subject-split");if(!split||$("#v12TermSetupPanel"))return;
   const exams=await examOptions();
   const panel=document.createElement("div");panel.id="v12TermSetupPanel";panel.className="section";panel.style.marginTop="14px";
-  panel.innerHTML=`<div class="section-title"><div><h3>Term-wise Assessment / Full Marks</h3><p>Each examination keeps its own permanent FM setup. Full Marks may be 20, 100, 300, 900, 1000 or any positive value.</p></div></div>
+  panel.innerHTML=`<div class="section-title"><div><h3>Term-wise Subject Assessment Setup</h3><p>Each examination keeps its own permanent setup. Every component (IN / TH / Practical etc.) has its own Full Marks, Pass %, Credit Hour and Weight %. Full Marks is not limited to 100.</p></div></div>
     <div class="toolbar" style="align-items:flex-end;flex-wrap:wrap">
       <div class="field" style="min-width:260px"><label>Examination / Term</label><select id="v12TermExam">${exams.map(e=>`<option value="${e.id}" ${num(e.id)===num(state.selectedExamId)?"selected":""}>${esc(e.name)}</option>`).join("")}</select></div>
       <button class="btn" id="v12CopyPreviousTerm" type="button">Copy Previous Exam Setup</button>
@@ -1417,7 +1453,7 @@ async function v12LoadTermSetup(){
     const comps=(sub?.components||[]).filter(c=>map.has(num(c.id))).sort((a,b)=>num(a.sort_order)-num(b.sort_order)||num(a.id)-num(b.id));
     if(statusHost)statusHost.innerHTML=lock.locked?`<div class="notice"><strong>${esc(lock.status)} — LOCKED.</strong> This term's Full Marks setup cannot be changed unless the result lifecycle is returned to an editable state.</div>`:`<div class="info"><strong>${esc(lock.status)}</strong> — This examination/class setup is editable. Saving changes affects only this selected examination.</div>`;
     if(!comps.length){host.innerHTML=`<div class="empty">No assessment component is snapshotted for this subject in this examination.</div>`;return;}
-    host.innerHTML=`<div class="table-wrap"><table><thead><tr><th>Component</th><th>Master Default FM</th><th>Term Full Marks</th><th>Pass %</th><th>Credit Hour</th><th>Weight %</th></tr></thead><tbody>${comps.map(c=>{const x=map.get(num(c.id));const dis=lock.locked?"disabled":"";return `<tr data-v12-component="${c.id}"><td><strong>${esc(c.code)}</strong><br><small>${esc(c.label||"")}</small></td><td class="center">${num(c.full_marks)}</td><td><input class="v12-term-fm" type="number" step="0.001" min="0.001" value="${num(x.full_marks)}" ${dis}></td><td><input class="v12-term-pass" type="number" step="0.001" min="0" max="100" value="${x.pass_percent??""}" ${dis}></td><td><input class="v12-term-credit" type="number" step="0.001" min="0" value="${x.credit_hour??""}" ${dis}></td><td><input class="v12-term-weight" type="number" step="0.001" min="0" value="${x.weight_percent??""}" ${dis}></td></tr>`}).join("")}</tbody></table></div>`;
+    host.innerHTML=`<div class="table-wrap"><table><thead><tr><th>Assessment Component</th><th>Master Default FM</th><th>Term Full Marks</th><th>Pass %</th><th>Component Credit Hour</th><th>Weight %</th></tr></thead><tbody>${comps.map(c=>{const x=map.get(num(c.id));const dis=lock.locked?"disabled":"";return `<tr data-v12-component="${c.id}"><td><strong>${esc(c.code)}</strong><br><small>${esc(c.label||"")}</small></td><td class="center">${num(c.full_marks)}</td><td><input class="v12-term-fm" type="number" step="0.001" min="0.001" value="${num(x.full_marks)}" ${dis}></td><td><input class="v12-term-pass" type="number" step="0.001" min="0" max="100" value="${x.pass_percent??""}" ${dis}></td><td><input class="v12-term-credit" type="number" step="0.001" min="0" value="${x.credit_hour??""}" ${dis}></td><td><input class="v12-term-weight" type="number" step="0.001" min="0" value="${x.weight_percent??""}" ${dis}></td></tr>`}).join("")}</tbody></table></div>`;
     const save=$("#v12SaveTermSetup"),copy=$("#v12CopyPreviousTerm"),defaults=$("#v12UseMasterDefaults");if(save)save.disabled=lock.locked;if(copy)copy.disabled=lock.locked;if(defaults)defaults.disabled=lock.locked;
   }catch(e){console.error(e);host.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;}
 }
@@ -1525,14 +1561,14 @@ async function calculateClassResults(examId,cls){
   for(const st of students||[]){let incomplete=false,anyNg=false,totalCredit=0,totalWgp=0;const subs=[];
     for(const sub of subjects||[]){const comps=(sub.components||[]).sort((a,b)=>num(a.sort_order)-num(b.sort_order)),out=[];if(!comps.length)continue;
       for(const c of comps){const mr=m.get(`${st.id}_${c.id}`);let status=mr?.status||"MISSING",obt=mr?.obtained_mark,percent=null,g={grade:"-",grade_point:null,is_ng:false};if(status==="MISSING")incomplete=true;else{percent=status==="ABS"?0:(num(obt)/num(c.full_marks)*100);g=gradeForPercent(percent,c.pass_percent);if(g.is_ng)anyNg=true;}out.push({...c,status,obtained_mark:obt,percent,...g,wgp:g.grade_point==null?null:num(c.credit_hour)*g.grade_point});}
-      const credit=out.reduce((a,c)=>a+num(c.credit_hour),0),missing=out.some(c=>c.status==="MISSING"),ng=out.some(c=>c.is_ng);let finalGrade="-",gp=null,wgp=null;if(missing||credit<=0){incomplete=true;}else{totalCredit+=credit;if(ng){finalGrade="NG";}else{wgp=out.reduce((a,c)=>a+num(c.wgp),0);gp=wgp/credit;finalGrade=gradeForGP(gp)?.grade||"-";totalWgp+=wgp;}}subs.push({...sub,components:out,credit_hour:credit,final_grade:finalGrade,final_grade_point:gp,wgp,is_ng:ng});}
+      const credit=out.reduce((a,c)=>a+num(c.credit_hour),0),missing=out.some(c=>c.status==="MISSING"),ng=out.some(c=>c.is_ng);let finalGrade="-",gp=null,wgp=null;if(missing||credit<=0){incomplete=true;}else{totalCredit+=credit;if(ng){finalGrade="NG";}else{wgp=out.reduce((a,c)=>a+num(c.wgp),0);gp=wgp/credit;finalGrade=finalGradeForSubjectGP(gp);totalWgp+=wgp;}}subs.push({...sub,components:out,credit_hour:credit,final_grade:finalGrade,final_grade_point:gp,wgp,is_ng:ng});}
     let gpa=null,status="INCOMPLETE";if(!incomplete&&totalCredit>0){if(anyNg){gpa=0;status="NG";}else{gpa=Math.round((totalWgp/totalCredit+1e-12)*100)/100;status="PASS";}}results.push({student:st,subjects:subs,total_credit:totalCredit,total_wgp:totalWgp,gpa,gpa_display:gpa==null?"-":gpa.toFixed(2),status,incomplete,has_ng:anyNg});
   }
   return results;
 }
 
 async function _allClassComponents(cls,examId=null){
-  const eid=num(examId||$("#v7MkExam")?.value||$("#markExam")?.value||state.selectedExamId);if(!eid){const {data,error}=await sb.from("subjects").select("id,name,sort_order,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("name");if(error)throw error;const out=[];for(const s of data||[])for(const c of (s.components||[]).sort((a,b)=>num(a.sort_order)-num(b.sort_order)))out.push({...c,subject_id:s.id,subject_name:s.name});return out;}
+  const eid=num(examId||$("#v7MkExam")?.value||$("#markExam")?.value||state.selectedExamId);if(!eid){const {data,error}=await sb.from("subjects").select("id,name,sort_order,components(*)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");if(error)throw error;const out=[];for(const s of data||[])for(const c of (s.components||[]).sort((a,b)=>num(a.sort_order)-num(b.sort_order)))out.push({...c,subject_id:s.id,subject_name:s.name});return out;}
   const subs=await v12EffectiveSubjects(eid,cls,null),out=[];for(const s of subs)for(const c of s.components||[])out.push({...c,subject_id:s.id,subject_name:s.name});return out;
 }
 
@@ -1560,7 +1596,521 @@ async function v11RestoreBackupFile(input){
   if(backup?.project!=="staugustine-marks-result"||!backup?.tables){input.value="";return toast("This is not a St. Augustine Marks backup file.");}const missing=required.filter(t=>!Array.isArray(backup.tables[t]));if(missing.length){input.value="";return toast(`Backup is incomplete: ${missing.join(", ")}`);}const c=backup.tables,termCount=Array.isArray(c.exam_component_settings)?c.exam_component_settings.length:"legacy backup — will rebuild term snapshots";
   const summary=`Backup date: ${backup.created_at||"Unknown"}\nAcademic years: ${c.academic_years.length}\nStudents: ${c.students.length}\nExams: ${c.exams.length}\nSubjects: ${c.subjects.length}\nMarks: ${c.marks.length}\nTerm Full Marks snapshots: ${termCount}\n\nRESTORE WILL REPLACE THE CURRENT MARKS/RESULT DATA.\nType RESTORE to continue.`;
   const typed=prompt(summary,"");if(typed!=="RESTORE"){input.value="";return toast("Restore cancelled.");}if(!confirm("Final confirmation: restore this backup now? Current Marks/Result data will be replaced.")){input.value="";return toast("Restore cancelled.");}toast("Restoring backup… do not close this tab.");
-  try{const {data,error}=await sb.rpc("restore_marks_backup_atomic",{p_backup:backup});if(error)throw error;state.yearId=null;await loadFoundation();await navigate("dashboard");toast(`Restore complete. ${data?.students??c.students.length} students and ${data?.marks??c.marks.length} marks restored.`);}catch(e){console.error(e);const m=errMsg(e);if(m.toLowerCase().includes("restore_marks_backup_atomic"))toast("Restore support SQL is not installed. Run TERM_WISE_FULL_MARKS_SQL.sql once in the Marks Supabase project.");else toast(`Restore failed: ${m}`);}finally{input.value="";}
+  try{const {data,error}=await sb.rpc("restore_marks_backup_atomic",{p_backup:backup});if(error)throw error;state.yearId=null;await loadFoundation();await navigate("dashboard");toast(`Restore complete. ${data?.students??c.students.length} students and ${data?.marks??c.marks.length} marks restored.`);}catch(e){console.error(e);const m=errMsg(e);if(m.toLowerCase().includes("restore_marks_backup_atomic"))toast("Restore support SQL is not installed. Run MARKS_WORKFLOW_V15_SQL.sql once in the Marks Supabase project.");else toast(`Restore failed: ${m}`);}finally{input.value="";}
 }
 
 Object.assign(window,{renderSubjects,v5LoadSubjectSetup,subjectDialog,componentDialog,v12LoadTermSetup,v12SaveTermSetup,v12CopyPreviousTermSetup,v12ApplyMasterDefaults,loadSelectedMarksSheets,loadMarksSheet,calculateClassResults,_allClassComponents,v8ClassCompletion,renderBackup,v5CreateBackup,v11RestoreBackupFile});
+
+/* ============================================================
+   v14 — SUBJECT DISPLAY ORDER + LARGER RESULT TEXT
+   ------------------------------------------------------------
+   Subject order is explicitly controlled by sort_order.
+   The same order flows to Subject Setup, Marks Entry, Results,
+   Excel exports and Bulk PDF through the shared ordered queries.
+   ============================================================ */
+
+async function v14OrderedSubjects(cls){
+  const {data,error}=await sb.from("subjects").select("id,name,sort_order,credit_hour,active,components(*)")
+    .eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true)
+    .order("sort_order").order("id");
+  if(error)throw error;
+  return data||[];
+}
+
+async function v14SetSubjectPosition(subjectId,cls,desiredOrder){
+  const rows=await v14OrderedSubjects(cls);
+  const target=rows.find(r=>num(r.id)===num(subjectId));
+  if(!target)return;
+  const rest=rows.filter(r=>num(r.id)!==num(subjectId));
+  const wanted=Math.max(1,Math.min(rows.length,Math.trunc(Number(desiredOrder))||1));
+  rest.splice(wanted-1,0,target);
+  for(let i=0;i<rest.length;i++){
+    const next=i+1;
+    if(num(rest[i].sort_order)!==next){
+      const {error}=await sb.from("subjects").update({sort_order:next}).eq("id",rest[i].id);
+      if(error)throw error;
+    }
+  }
+}
+
+async function v14MoveSubject(subjectId,direction){
+  try{
+    const cls=$("#subjectClass")?.value||"";
+    const rows=await v14OrderedSubjects(cls);
+    const index=rows.findIndex(r=>num(r.id)===num(subjectId));
+    if(index<0)return;
+    const next=index+Number(direction||0);
+    if(next<0||next>=rows.length)return;
+    await v14SetSubjectPosition(subjectId,cls,next+1);
+    state.v5SubjectId=num(subjectId);
+    await v5LoadSubjectSetup();
+    toast(`Subject moved to order ${next+1}.`);
+  }catch(e){console.error(e);toast(errMsg(e));}
+}
+
+v5LoadSubjectSetup=async function(){
+  const cls=$("#subjectClass")?.value||"Class 1";
+  const [{data:cfg,error:ce},list]=await Promise.all([
+    sb.from("class_settings").select("*").eq("academic_year_id",state.yearId).eq("class_name",cls).maybeSingle(),
+    v14OrderedSubjects(cls)
+  ]);
+  if(ce)throw ce;
+  if($("#classTeacherInput"))$("#classTeacherInput").value=cfg?.class_teacher||"";
+  if(!list.find(x=>num(x.id)===num(state.v5SubjectId)))state.v5SubjectId=list[0]?.id||null;
+  const host=$("#subjectList");
+  if(host)host.innerHTML=`<div class="table-wrap"><table><thead><tr><th class="center" style="width:80px">Order</th><th>Subject</th><th class="center">Total Credit Hour</th><th class="center" style="width:120px">Move</th></tr></thead><tbody>${list.map(s=>`<tr class="${num(s.id)===num(state.v5SubjectId)?"subject-row-selected":""}" data-sid="${s.id}" style="cursor:pointer"><td class="center"><strong>${num(s.sort_order)}</strong></td><td>${esc(s.name)}</td><td class="center">${num(s.credit_hour).toFixed(2)}</td><td class="center"><button type="button" class="btn small" title="Move up" onclick="event.stopPropagation();v14MoveSubject(${s.id},-1)">↑</button> <button type="button" class="btn small" title="Move down" onclick="event.stopPropagation();v14MoveSubject(${s.id},1)">↓</button></td></tr>`).join("")}</tbody></table></div>`;
+  $$("#subjectList tr[data-sid]").forEach(r=>r.onclick=()=>{state.v5SubjectId=num(r.dataset.sid);state.v5ComponentId=null;v5LoadSubjectSetup();});
+  const sub=list.find(x=>num(x.id)===num(state.v5SubjectId));
+  const comps=(sub?.components||[]).slice().sort((a,b)=>num(a.sort_order)-num(b.sort_order)||num(a.id)-num(b.id));
+  if(!comps.find(x=>num(x.id)===num(state.v5ComponentId)))state.v5ComponentId=comps[0]?.id||null;
+  const compHost=$("#componentList");
+  if(compHost)compHost.innerHTML=sub?`<div class="table-wrap"><table><thead><tr><th>Code</th><th>Label</th><th class="center">Full Marks</th><th class="center">Weight %</th><th class="center">Credit Hour</th><th class="center">Pass %</th></tr></thead><tbody>${comps.map(c=>`<tr class="${num(c.id)===num(state.v5ComponentId)?"subject-row-selected":""}" data-cid="${c.id}" style="cursor:pointer"><td>${esc(c.code)}</td><td>${esc(c.label)}</td><td class="center">${num(c.full_marks)}</td><td class="center">${c.weight_percent??""}</td><td class="center">${c.credit_hour??""}</td><td class="center">${c.pass_percent??""}</td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">Select or add a subject.</div>`;
+  $$("#componentList tr[data-cid]").forEach(r=>r.onclick=()=>{state.v5ComponentId=num(r.dataset.cid);v5LoadSubjectSetup();});
+  if($("#v12TermSetupPanel"))await v12LoadTermSetup();
+};
+
+subjectDialog=async function(id=null){
+  const cls=$("#subjectClass")?.value||"Class 1";
+  let subject=null,components=[],defaultOrder=1;
+  if(id){
+    const {data,error}=await sb.from("subjects").select("*,components(*)").eq("id",id).single();
+    if(error)return toast(errMsg(error));
+    subject=data;components=(data.components||[]);defaultOrder=Math.max(1,Math.trunc(num(subject.sort_order))||1);
+  }else{
+    try{const rows=await v14OrderedSubjects(cls);defaultOrder=rows.length+1;}catch(_e){defaultOrder=1;}
+  }
+  const byCode=new Map(components.map(c=>[String(c.code||"").toUpperCase(),c]));
+  const inc=byCode.get("IN")||byCode.get("INTERNAL")||{},th=byCode.get("TH")||byCode.get("THEORY")||{};
+  openModal(id?"Edit Subject":"Add Subject",`<form id="v5SubjectForm" class="form-grid"><div class="field full"><label>Class Teacher</label><input name="teacher" value="${esc($("#classTeacherInput")?.value||"")}"></div><div class="field"><label>Subject Name</label><input name="name" value="${esc(subject?.name||"")}" required></div><div class="field"><label>Display Order</label><input name="sort_order" type="number" min="1" step="1" value="${defaultOrder}" required><small>1 = first subject, 2 = second, 3 = third…</small></div><div class="full" style="background:#EAF1FF;color:var(--navy2);font-weight:600;padding:7px 8px">MASTER DEFAULTS FOR NEW EXAMINATIONS</div><div class="field"><label>Default Internal Full Marks</label><input name="in_fm" type="number" step="0.001" min="0.001" value="${inc.full_marks??50}"></div><div class="field"><label>Internal Weight %</label><input name="in_wt" type="number" step="0.001" value="${inc.weight_percent??50}"></div><div class="field"><label>Internal Credit Hour</label><input name="in_ch" type="number" step="0.001" value="${inc.credit_hour??2}"></div><div class="field"><label>Default Theory Full Marks</label><input name="th_fm" type="number" step="0.001" min="0.001" value="${th.full_marks??50}"></div><div class="field"><label>Theory Weight %</label><input name="th_wt" type="number" step="0.001" value="${th.weight_percent??50}"></div><div class="field"><label>Theory Credit Hour</label><input name="th_ch" type="number" step="0.001" value="${th.credit_hour??2}"></div><div class="info full"><strong>Order:</strong> This same subject order is used in Marks Entry, Result/Grade Sheet, Excel and Bulk PDF. <strong>Term values:</strong> Use Term-wise Assessment Setup for the actual examination Full Marks / Pass % / Credit Hour / Weight %.</div><div class="form-actions full"><button type="button" class="btn" onclick="closeModal()">Cancel</button><button class="btn primary">SAVE SUBJECT</button></div></form>`);
+  $("#v5SubjectForm").onsubmit=async e=>{
+    e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));
+    try{
+      const inFm=Number(f.in_fm),thFm=Number(f.th_fm),desired=Math.max(1,Math.trunc(Number(f.sort_order))||1);
+      if(!Number.isFinite(inFm)||inFm<=0||!Number.isFinite(thFm)||thFm<=0)return toast("Default Full Marks must be positive. It is not limited to 100.");
+      const p={academic_year_id:state.yearId,class_name:cls,name:f.name.trim().toUpperCase(),sort_order:desired,active:true};
+      let sid=id;
+      if(id){const {error}=await sb.from("subjects").update(p).eq("id",id);if(error)throw error;}
+      else{const {data,error}=await sb.from("subjects").insert({...p,credit_hour:0}).select("id").single();if(error)throw error;sid=data.id;}
+      await sb.from("class_settings").upsert({academic_year_id:state.yearId,class_name:cls,class_teacher:f.teacher.trim()},{onConflict:"academic_year_id,class_name"});
+      const defs=[{code:"IN",label:"INTERNAL",full_marks:inFm,weight_percent:num(f.in_wt),credit_hour:num(f.in_ch),pass_percent:40,sort_order:1},{code:"TH",label:"THEORY",full_marks:thFm,weight_percent:num(f.th_wt),credit_hour:num(f.th_ch),pass_percent:35,sort_order:2}];
+      for(const d of defs){const old=components.find(c=>String(c.code||"").toUpperCase()===d.code);const res=old?await sb.from("components").update(d).eq("id",old.id):await sb.from("components").insert({subject_id:sid,...d});if(res.error)throw res.error;}
+      await v14SetSubjectPosition(sid,cls,desired);
+      closeModal();state.v5SubjectId=sid;toast(`Subject saved at display order ${desired}.`);await v5LoadSubjectSetup();
+    }catch(err){console.error(err);toast(errMsg(err));}
+  };
+};
+
+loadMarkSubjects=async function(){
+  const cls=$("#markClass")?.value||"";
+  const {data,error}=await sb.from("subjects").select("id,name,sort_order").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");
+  if(error)return toast(errMsg(error));
+  const host=$("#markSubjectPicker");if(!host)return;
+  host.innerHTML=`<label><input id="markAllSubjects" type="checkbox"> All</label>${(data||[]).map(s=>`<label><input class="mark-subject-choice" type="checkbox" value="${s.id}"> ${esc(s.name)}</label>`).join("")}`;
+  $("#markAllSubjects").onchange=e=>{$$(".mark-subject-choice").forEach(x=>x.checked=e.currentTarget.checked)};
+  if(!(data||[]).length&&$("#marksArea"))$("#marksArea").innerHTML=`<div class="empty">No active subjects for ${esc(cls)}. Add subjects/components in Subject & Credit Setup first.</div>`;
+};
+
+Object.assign(window,{v14MoveSubject,v5LoadSubjectSetup,subjectDialog,loadMarkSubjects});
+
+
+/* ============================================================
+   v15 — SIMPLE SUBJECTS + CLASS CREDIT DEFAULTS + TERM MARKS
+   ------------------------------------------------------------
+   User workflow:
+   1) Subjects: name + display order only (class-wise).
+   2) Credit Hour / Default Setup: class-wise Internal + Exam CH.
+   3) Marks Entry: Exam/Term + Class + Subject, enter the two Full
+      Marks once; they apply to every student for that subject/term.
+      Term-specific CH is prefilled from defaults and remains editable.
+   4) Percentage = OM / FM * 100; existing editable grading scale
+      supplies Grade + Grade Point. WGP = CH * GP and
+      GPA = Total WGP / Total Credit Hour.
+   ============================================================ */
+
+function v15ComponentRole(c){
+  const code=String(c?.code||"").trim().toUpperCase();
+  const label=String(c?.label||"").trim().toUpperCase();
+  if(["IN","INT","INTERNAL","EVALUATION"].includes(code)||/INTERNAL|EVALUATION/.test(label))return "internal";
+  if(["TH","THEORY","EX","EXAM","EXAMINATION"].includes(code)||/THEORY|EXAM/.test(label))return "exam";
+  return "other";
+}
+function v15RoleComponents(components){
+  const all=(components||[]).slice().sort((a,b)=>num(a.sort_order)-num(b.sort_order)||num(a.id)-num(b.id));
+  return {
+    internal:all.find(c=>v15ComponentRole(c)==="internal")||null,
+    exam:all.find(c=>v15ComponentRole(c)==="exam")||null
+  };
+}
+async function v15OrderedClassSubjects(cls,{withComponents=true}={}){
+  const select=withComponents?"id,name,sort_order,credit_hour,active,components(*)":"id,name,sort_order,credit_hour,active";
+  const {data,error}=await sb.from("subjects").select(select)
+    .eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true)
+    .order("sort_order").order("id");
+  if(error)throw error;return data||[];
+}
+async function v15EnsureSubjectRoles(subjectId){
+  const {data,error}=await sb.from("components").select("*").eq("subject_id",subjectId).order("sort_order").order("id");
+  if(error)throw error;
+  const roles=v15RoleComponents(data||[]),created=[];
+  if(!roles.internal){
+    const {data:r,error:e}=await sb.from("components").insert({subject_id:subjectId,code:"IN",label:"INTERNAL",full_marks:100,weight_percent:50,credit_hour:2,pass_percent:40,sort_order:1}).select("*").single();
+    if(e)throw e;created.push(r);
+  }
+  if(!roles.exam){
+    const {data:r,error:e}=await sb.from("components").insert({subject_id:subjectId,code:"TH",label:"EXAM / THEORY",full_marks:100,weight_percent:50,credit_hour:2,pass_percent:35,sort_order:2}).select("*").single();
+    if(e)throw e;created.push(r);
+  }
+  if(created.length){
+    const {data:again,error:ae}=await sb.from("components").select("*").eq("subject_id",subjectId).order("sort_order").order("id");
+    if(ae)throw ae;return v15RoleComponents(again||[]);
+  }
+  return roles;
+}
+async function v15SetSubjectPosition(subjectId,cls,desiredOrder){
+  const rows=await v15OrderedClassSubjects(cls,{withComponents:false});
+  const target=rows.find(r=>num(r.id)===num(subjectId));if(!target)return;
+  const rest=rows.filter(r=>num(r.id)!==num(subjectId));
+  const wanted=Math.max(1,Math.min(rows.length,Math.trunc(Number(desiredOrder))||1));
+  rest.splice(wanted-1,0,target);
+  for(let i=0;i<rest.length;i++){
+    const order=i+1;
+    if(num(rest[i].sort_order)!==order){const {error}=await sb.from("subjects").update({sort_order:order}).eq("id",rest[i].id);if(error)throw error;}
+  }
+}
+async function v15MoveSubject(subjectId,direction){
+  try{
+    const cls=$("#subjectClass")?.value||"Class 1",rows=await v15OrderedClassSubjects(cls,{withComponents:false});
+    const idx=rows.findIndex(r=>num(r.id)===num(subjectId)),next=idx+Number(direction||0);
+    if(idx<0||next<0||next>=rows.length)return;
+    await v15SetSubjectPosition(subjectId,cls,next+1);state.v5SubjectId=num(subjectId);await v15LoadSubjectAndCreditSetup();
+  }catch(e){console.error(e);toast(errMsg(e));}
+}
+function v15CreditTotalRefresh(){
+  let total=0;
+  $$('tr[data-v15-credit-subject]').forEach(tr=>{
+    const a=Number(tr.querySelector('.v15-in-ch')?.value||0),b=Number(tr.querySelector('.v15-ex-ch')?.value||0),sum=(Number.isFinite(a)?a:0)+(Number.isFinite(b)?b:0);
+    const cell=tr.querySelector('.v15-sub-total');if(cell)cell.textContent=sum.toFixed(2);total+=sum;
+  });
+  const totalCell=$("#v15CreditGrandTotal");if(totalCell)totalCell.textContent=total.toFixed(2);
+}
+
+renderSubjects=async function(){
+  $("#content").innerHTML=`
+    <div class="section">
+      <div class="section-title"><div><h3>Subjects</h3><p>Only Subject Name and Display Order are managed here. The same order is used in Marks Entry, Results, Grade Sheets, Excel and Bulk PDF.</p></div></div>
+      <div class="toolbar" style="align-items:flex-end;flex-wrap:wrap">
+        <div class="field"><label>Class</label><select id="subjectClass">${classOptions("Class 1")}</select></div>
+        <div class="field grow" style="max-width:280px"><label>Class Teacher</label><input id="classTeacherInput"></div>
+        <button class="btn" id="saveTeacherBtn">Save Teacher</button>
+        <button class="btn primary" id="addSubjectBtn">+ Subject</button>
+      </div>
+      <div id="v15SubjectTable" style="margin-top:12px"></div>
+    </div>
+    <div class="section" style="margin-top:14px">
+      <div class="section-title"><div><h3>Credit Hour / Default Setup</h3><p>Class-wise default Credit Hours. Internal and Exam/Theory can be different. These defaults prefill each new term; the selected term can still be changed independently in Marks Entry.</p></div><button class="btn green" id="v15SaveCreditBtn">SAVE CREDIT HOURS</button></div>
+      <div id="v15CreditTable"></div>
+    </div>`;
+  state.v5SubjectId=null;
+  $("#subjectClass").onchange=v15LoadSubjectAndCreditSetup;
+  $("#saveTeacherBtn").onclick=v5SaveClassTeacher;
+  $("#addSubjectBtn").onclick=()=>subjectDialog();
+  $("#v15SaveCreditBtn").onclick=v15SaveCreditDefaults;
+  await v15LoadSubjectAndCreditSetup();
+};
+
+async function v15LoadSubjectAndCreditSetup(){
+  const cls=$("#subjectClass")?.value||"Class 1";
+  const [{data:cfg,error:ce},subs]=await Promise.all([
+    sb.from("class_settings").select("*").eq("academic_year_id",state.yearId).eq("class_name",cls).maybeSingle(),
+    v15OrderedClassSubjects(cls)
+  ]);
+  if(ce)throw ce;if($("#classTeacherInput"))$("#classTeacherInput").value=cfg?.class_teacher||"";
+  const list=subs||[];
+  const sh=$("#v15SubjectTable");
+  if(sh)sh.innerHTML=list.length?`<div class="table-wrap"><table><thead><tr><th class="center" style="width:90px">Order</th><th>Subject Name</th><th class="center" style="width:130px">Move</th><th class="center" style="width:180px">Action</th></tr></thead><tbody>${list.map(s=>`<tr><td class="center"><strong>${num(s.sort_order)}</strong></td><td><strong>${esc(s.name)}</strong></td><td class="center"><button class="btn small" onclick="v15MoveSubject(${s.id},-1)">↑</button> <button class="btn small" onclick="v15MoveSubject(${s.id},1)">↓</button></td><td class="center"><button class="btn small" onclick="subjectDialog(${s.id})">Edit</button> <button class="btn small red" onclick="v15DeleteSubject(${s.id})">Delete</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">No subjects for ${esc(cls)}. Add the first subject.</div>`;
+  const ch=$("#v15CreditTable");
+  if(ch){
+    if(!list.length)ch.innerHTML=`<div class="empty">Add subjects first.</div>`;
+    else{
+      ch.innerHTML=`<div class="table-wrap"><table><thead><tr><th class="center">Order</th><th>Subject</th><th class="center">Internal Credit Hour</th><th class="center">Exam / Theory Credit Hour</th><th class="center">Total Credit</th></tr></thead><tbody>${list.map(s=>{const r=v15RoleComponents(s.components||[]),ic=r.internal?.credit_hour??0,ec=r.exam?.credit_hour??0;return `<tr data-v15-credit-subject="${s.id}" data-in-component="${r.internal?.id||""}" data-ex-component="${r.exam?.id||""}"><td class="center">${num(s.sort_order)}</td><td><strong>${esc(s.name)}</strong></td><td class="center"><input class="v15-in-ch v15-credit-input" type="number" min="0" step="0.01" value="${ic}"></td><td class="center"><input class="v15-ex-ch v15-credit-input" type="number" min="0" step="0.01" value="${ec}"></td><td class="center"><strong class="v15-sub-total">${(num(ic)+num(ec)).toFixed(2)}</strong></td></tr>`}).join("")}<tr class="v15-credit-total-row"><td colspan="4" class="right"><strong>TOTAL CREDIT HOURS</strong></td><td class="center"><strong id="v15CreditGrandTotal">0.00</strong></td></tr></tbody></table></div>`;
+      $$('.v15-credit-input').forEach(i=>i.oninput=v15CreditTotalRefresh);v15CreditTotalRefresh();
+    }
+  }
+}
+
+subjectDialog=async function(id=null){
+  const cls=$("#subjectClass")?.value||"Class 1";let row={name:"",sort_order:1};
+  if(id){const {data,error}=await sb.from("subjects").select("id,name,sort_order").eq("id",id).single();if(error)return toast(errMsg(error));row=data;}
+  else{try{row.sort_order=(await v15OrderedClassSubjects(cls,{withComponents:false})).length+1;}catch(_e){row.sort_order=1;}}
+  openModal(id?"Edit Subject":"Add Subject",`<form id="v15SubjectForm" class="form-grid"><div class="field full"><label>Class</label><input value="${esc(cls)}" disabled></div><div class="field"><label>Subject Name</label><input name="name" value="${esc(row.name||"")}" required></div><div class="field"><label>Display Order</label><input name="sort_order" type="number" min="1" step="1" value="${Math.max(1,num(row.sort_order)||1)}" required><small>1 = first, 2 = second, 3 = third…</small></div><div class="info full">Only subject name and order are stored here. Full Marks are entered once per Term + Class + Subject in Marks Entry.</div><div class="form-actions full"><button type="button" class="btn" onclick="closeModal()">Cancel</button><button class="btn primary">SAVE SUBJECT</button></div></form>`);
+  $("#v15SubjectForm").onsubmit=async e=>{
+    e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const name=String(f.name||"").trim().toUpperCase(),order=Math.max(1,Math.trunc(Number(f.sort_order))||1);if(!name)return toast("Subject Name is required.");
+    try{
+      let sid=id;
+      if(id){const {error}=await sb.from("subjects").update({name,sort_order:order}).eq("id",id);if(error)throw error;}
+      else{const {data,error}=await sb.from("subjects").insert({academic_year_id:state.yearId,class_name:cls,name,credit_hour:0,sort_order:order,active:true}).select("id").single();if(error)throw error;sid=data.id;}
+      await v15EnsureSubjectRoles(sid);await v15SetSubjectPosition(sid,cls,order);closeModal();toast("Subject saved.");await v15LoadSubjectAndCreditSetup();
+    }catch(err){console.error(err);toast(errMsg(err));}
+  };
+};
+async function v15DeleteSubject(id){
+  if(!confirm("Delete this subject? Existing marks/history protection may block deletion if a finalized/published result uses it."))return;
+  const {error}=await sb.from("subjects").delete().eq("id",id);if(error)return toast(errMsg(error));toast("Subject deleted.");await v15LoadSubjectAndCreditSetup();
+}
+async function v15SaveCreditDefaults(){
+  const btn=$("#v15SaveCreditBtn");if(btn)btn.disabled=true;
+  try{
+    for(const tr of $$('tr[data-v15-credit-subject]')){
+      const sid=num(tr.dataset.v15CreditSubject),inCh=Number(tr.querySelector('.v15-in-ch')?.value),exCh=Number(tr.querySelector('.v15-ex-ch')?.value);
+      if(!Number.isFinite(inCh)||inCh<0||!Number.isFinite(exCh)||exCh<0)throw new Error("Credit Hour cannot be negative.");
+      let inId=num(tr.dataset.inComponent),exId=num(tr.dataset.exComponent);
+      if(!inId||!exId){const roles=await v15EnsureSubjectRoles(sid);inId=num(roles.internal?.id);exId=num(roles.exam?.id);}
+      let r=await sb.from("components").update({credit_hour:inCh}).eq("id",inId);if(r.error)throw r.error;
+      r=await sb.from("components").update({credit_hour:exCh}).eq("id",exId);if(r.error)throw r.error;
+      r=await sb.from("subjects").update({credit_hour:inCh+exCh}).eq("id",sid);if(r.error)throw r.error;
+    }
+    toast("Class credit-hour defaults saved. Existing term snapshots remain unchanged.");await v15LoadSubjectAndCreditSetup();
+  }catch(e){console.error(e);toast(errMsg(e));}finally{if(btn)btn.disabled=false;}
+}
+
+/* ---------- Simple Marks Entry ---------- */
+renderMarks=async function(){
+  const exams=await examOptions(),defaultExam=num(state.selectedExamId)||num(exams[0]?.id),defaultClass="Class 1";
+  $("#content").innerHTML=`<div class="section"><div class="toolbar" style="align-items:flex-end;flex-wrap:wrap"><div class="field" style="min-width:280px"><label>Examination / Term</label><select id="markExam">${exams.map(e=>`<option value="${e.id}" ${num(e.id)===defaultExam?"selected":""}>${esc(e.name)}</option>`).join("")}</select></div><div class="field"><label>Class</label><select id="markClass">${classOptions(defaultClass)}</select></div><div class="field" style="min-width:240px"><label>Subject</label><select id="markSubject"></select></div><button class="btn primary" id="loadMarksBtn">LOAD MARKS SHEET</button></div></div><div class="section"><div class="marks-help"><strong>Excel Copy/Paste:</strong> copy one or two marks columns from Excel, click the first Internal/Exam mark cell, then press Ctrl+V.</div><div id="marksArea"><div class="empty">Choose Term, Class and Subject, then load the marks sheet.</div></div></div>`;
+  $("#markClass").onchange=loadMarkSubjects;$("#loadMarksBtn").onclick=v15LoadMarksSheet;$("#markExam").onchange=()=>{state.selectedExamId=num($("#markExam").value)};await loadMarkSubjects();
+};
+loadMarkSubjects=async function(){
+  const cls=$("#markClass")?.value||"Class 1",host=$("#markSubject");if(!host)return;
+  const rows=await v15OrderedClassSubjects(cls,{withComponents:false});
+  host.innerHTML=rows.map(s=>`<option value="${s.id}">${num(s.sort_order)}. ${esc(s.name)}</option>`).join("");
+  if(!rows.length&&$("#marksArea"))$("#marksArea").innerHTML=`<div class="empty">No subject is configured for ${esc(cls)}.</div>`;
+};
+function v15MarkValidate(el){
+  const raw=String(el.value||"").trim(),full=Number(el.dataset.full);el.classList.remove("invalid","abs");if(!raw)return true;
+  if(["ABS","AB","A","ABSENT"].includes(raw.toUpperCase())){el.classList.add("abs");return true;}
+  const v=Number(raw),ok=Number.isFinite(v)&&v>=0&&v<=full;if(!ok)el.classList.add("invalid");return ok;
+}
+function v15CurrentSetupValues(){
+  return {inFm:Number($("#v15InFm")?.value),exFm:Number($("#v15ExFm")?.value),inCh:Number($("#v15InCh")?.value),exCh:Number($("#v15ExCh")?.value)};
+}
+function v15ApplySetupToSheet(){
+  const v=v15CurrentSetupValues();
+  $$('.v15-mark-input[data-col="0"]').forEach(i=>{i.dataset.full=Number.isFinite(v.inFm)?v.inFm:0;v15MarkValidate(i)});
+  $$('.v15-mark-input[data-col="1"]').forEach(i=>{i.dataset.full=Number.isFinite(v.exFm)?v.exFm:0;v15MarkValidate(i)});
+  const ih=$("#v15InHeader"),eh=$("#v15ExHeader");if(ih)ih.textContent=Number.isFinite(v.inFm)?`Internal OM / ${v.inFm}`:"Internal OM";if(eh)eh.textContent=Number.isFinite(v.exFm)?`Exam OM / ${v.exFm}`:"Exam OM";
+  const c=state.marksContext;if(c)(c.students||[]).forEach((_,i)=>v15RefreshRowSummary(i));
+}
+function v15RefreshRowSummary(row){
+  const c=state.marksContext;if(!c)return;const v=v15CurrentSetupValues(),credit=[v.inCh,v.exCh],fm=[v.inFm,v.exFm],comps=[c.internal,c.exam];let complete=true,ng=false,totalWgp=0,totalCredit=0;
+  for(let col=0;col<2;col++){
+    const el=document.querySelector(`.v15-mark-input[data-row="${row}"][data-col="${col}"]`),raw=String(el?.value||"").trim().toUpperCase(),ch=Number(credit[col]);
+    if(!raw){complete=false;continue;}if(!Number.isFinite(ch)||ch<0||!Number.isFinite(fm[col])||fm[col]<=0){complete=false;continue;}totalCredit+=ch;
+    const pct=["ABS","AB","A","ABSENT"].includes(raw)?0:Number(raw)/fm[col]*100,pass=comps[col]?.pass_percent??(col===0?40:35),g=gradeForPercent(pct,pass);
+    if(g.is_ng||g.grade_point==null){ng=true;continue;}totalWgp+=ch*num(g.grade_point);
+  }
+  let gp="-",grade="-",wgp="-";if(complete&&totalCredit>0){if(ng){grade="NG";}else{const n=totalWgp/totalCredit;gp=n.toFixed(2);grade=finalGradeForSubjectGP(n);wgp=totalWgp.toFixed(2);}}
+  const cells=$$(`tr[data-v15-mark-row="${row}"] .v15-summary`);if(cells[0])cells[0].textContent=gp;if(cells[1])cells[1].textContent=wgp;if(cells[2])cells[2].textContent=grade;
+}
+function v15HandlePaste(ev){
+  ev.preventDefault();const start=ev.currentTarget,text=ev.clipboardData?.getData("text/plain")||"",rows=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n").filter((x,i,a)=>!(i===a.length-1&&x==="")).map(x=>x.split("\t"));if(!rows.length)return;
+  const r0=num(start.dataset.row),c0=num(start.dataset.col);let n=0;
+  for(let r=0;r<rows.length;r++)for(let c=0;c<rows[r].length;c++){
+    const col=c0+c;if(col>1)continue;const el=document.querySelector(`.v15-mark-input[data-row="${r0+r}"][data-col="${col}"]`);if(!el)continue;el.value=String(rows[r][c]??"").trim();v15MarkValidate(el);v15RefreshRowSummary(r0+r);n++;
+  }
+  toast(`Pasted ${n} mark cell(s).`);
+}
+async function v15LoadMarksSheet(){
+  const examId=num($("#markExam")?.value),cls=$("#markClass")?.value||"",subjectId=num($("#markSubject")?.value),area=$("#marksArea");
+  if(!examId||!subjectId)return toast("Select Examination, Class and Subject.");state.selectedExamId=examId;area.innerHTML=`<div class="empty">Loading marks sheet…</div>`;
+  try{
+    await v15EnsureSubjectRoles(subjectId);const lock=await v12EnsureExamSettings(examId,cls);const subjects=await v12EffectiveSubjects(examId,cls,[subjectId],{ensure:false}),subject=subjects[0];if(!subject)throw new Error("Subject was not found.");
+    const roles=v15RoleComponents(subject.components||[]);if(!roles.internal||!roles.exam)throw new Error("Internal/Exam components are missing. Re-save the subject once.");
+    const [{data:students,error:se},{data:marks,error:me}]=await Promise.all([
+      sb.from("students").select("id,roll_no,name,symbol_no,registration_no,class_name").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("roll_no").order("name"),
+      sb.from("marks").select("student_id,component_id,obtained_mark,status").eq("exam_id",examId).in("component_id",[roles.internal.id,roles.exam.id])
+    ]);if(se)throw se;if(me)throw me;const rows=students||[],m=new Map((marks||[]).map(x=>[`${x.student_id}_${x.component_id}`,x]));
+    state.marksContext={examId,cls,subjectId,subject,internal:roles.internal,exam:roles.exam,students:rows,lock};
+    const disabled=lock.locked?"disabled":"";
+    area.innerHTML=`<div class="section-title"><div><h3>${esc(subject.name)}</h3><p>${esc(cls)} • ${rows.length} student(s) • ${lock.locked?esc(lock.status)+" — locked":"Term-specific setup"}</p></div><button id="v15SaveMarksBtn" class="btn green" ${disabled}>SAVE SETUP & MARKS</button></div>
+      <div class="v15-term-setup">
+        <div class="v15-term-card"><strong>INTERNAL</strong><label>Full Marks<input id="v15InFm" type="number" min="0.001" step="0.001" value="${num(roles.internal.full_marks)}" ${disabled}></label><label>Credit Hour<input id="v15InCh" type="number" min="0" step="0.01" value="${roles.internal.credit_hour??0}" ${disabled}></label><small>Default pass: ${roles.internal.pass_percent??40}%</small></div>
+        <div class="v15-term-card"><strong>EXAM / THEORY</strong><label>Full Marks<input id="v15ExFm" type="number" min="0.001" step="0.001" value="${num(roles.exam.full_marks)}" ${disabled}></label><label>Credit Hour<input id="v15ExCh" type="number" min="0" step="0.01" value="${roles.exam.credit_hour??0}" ${disabled}></label><small>Default pass: ${roles.exam.pass_percent??35}%</small></div>
+        <div class="v15-formula-card"><strong>Calculation</strong><span>% = Obtained ÷ Full Marks × 100</span><span>WGP = Credit Hour × Grade Point</span><span>GPA = Total WGP ÷ Total Credit Hour</span></div>
+      </div>
+      ${lock.locked?`<div class="notice"><strong>${esc(lock.status)}:</strong> this class/term result is locked. Return it to an editable status before changing setup or marks.</div>`:""}
+      <div class="table-wrap"><table class="v15-marks-table"><thead><tr><th>Roll</th><th>Student Name</th><th id="v15InHeader">Internal OM / ${num(roles.internal.full_marks)}</th><th id="v15ExHeader">Exam OM / ${num(roles.exam.full_marks)}</th><th>Subject GP</th><th>WGP</th><th>Grade</th></tr></thead><tbody>${rows.map((s,ri)=>{const mi=m.get(`${s.id}_${roles.internal.id}`),mt=m.get(`${s.id}_${roles.exam.id}`),vi=mi?(mi.status==="ABS"?"ABS":mi.obtained_mark??""):"",vt=mt?(mt.status==="ABS"?"ABS":mt.obtained_mark??""):"";return `<tr data-v15-mark-row="${ri}"><td>${esc(s.roll_no||"")}</td><td><strong>${esc(s.name)}</strong></td><td><input class="v15-mark-input mark-input" data-row="${ri}" data-col="0" data-student="${s.id}" data-component="${roles.internal.id}" data-full="${num(roles.internal.full_marks)}" value="${esc(vi)}" ${disabled}></td><td><input class="v15-mark-input mark-input" data-row="${ri}" data-col="1" data-student="${s.id}" data-component="${roles.exam.id}" data-full="${num(roles.exam.full_marks)}" value="${esc(vt)}" ${disabled}></td><td class="center v15-summary">-</td><td class="center v15-summary">-</td><td class="center v15-summary">-</td></tr>`}).join("")}</tbody></table></div>
+      <div class="form-actions" style="margin-top:12px"><button class="btn green big" id="v15SaveMarksBottom" ${disabled}>SAVE SETUP & MARKS</button></div>`;
+    ["v15InFm","v15ExFm","v15InCh","v15ExCh"].forEach(id=>{const el=$("#"+id);if(el)el.oninput=v15ApplySetupToSheet;});
+    $$('.v15-mark-input').forEach(el=>{el.oninput=()=>{v15MarkValidate(el);v15RefreshRowSummary(num(el.dataset.row));};el.onpaste=v15HandlePaste;});
+    if($("#v15SaveMarksBtn"))$("#v15SaveMarksBtn").onclick=v15SaveSetupAndMarks;if($("#v15SaveMarksBottom"))$("#v15SaveMarksBottom").onclick=v15SaveSetupAndMarks;v15ApplySetupToSheet();
+  }catch(e){console.error(e);area.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;}
+}
+async function v15SaveSetupAndMarks(){
+  const c=state.marksContext;if(!c)return toast("Load a marks sheet first.");const lock=await v12ResultLock(c.examId,c.cls);if(lock.locked)return toast(`${lock.status}: result is locked.`);
+  const v=v15CurrentSetupValues();if(!Number.isFinite(v.inFm)||v.inFm<=0||!Number.isFinite(v.exFm)||v.exFm<=0)return toast("Internal and Exam Full Marks must be positive. They are not limited to 100.");if(!Number.isFinite(v.inCh)||v.inCh<0||!Number.isFinite(v.exCh)||v.exCh<0)return toast("Credit Hour cannot be negative.");if(v.inCh+v.exCh<=0)return toast("Total Credit Hour must be greater than 0.");
+  v15ApplySetupToSheet();let invalid=0;for(const el of $$('.v15-mark-input'))if(!v15MarkValidate(el))invalid++;if(invalid)return toast(`${invalid} invalid mark cell(s). Correct the red cells first.`);
+  const buttons=$$("#v15SaveMarksBtn,#v15SaveMarksBottom");buttons.forEach(b=>b.disabled=true);
+  try{
+    const settingRows=[
+      {exam_id:c.examId,component_id:c.internal.id,full_marks:v.inFm,credit_hour:v.inCh,pass_percent:c.internal.pass_percent??40,weight_percent:c.internal.weight_percent??50,updated_at:new Date().toISOString()},
+      {exam_id:c.examId,component_id:c.exam.id,full_marks:v.exFm,credit_hour:v.exCh,pass_percent:c.exam.pass_percent??35,weight_percent:c.exam.weight_percent??50,updated_at:new Date().toISOString()}
+    ];
+    const sr=await sb.from("exam_component_settings").upsert(settingRows,{onConflict:"exam_id,component_id"});if(sr.error)throw sr.error;
+    const upserts=[],deletes=[];for(const el of $$('.v15-mark-input')){const raw=el.value.trim(),student_id=num(el.dataset.student),component_id=num(el.dataset.component);if(!raw){deletes.push([student_id,component_id]);continue;}if(["ABS","AB","A","ABSENT"].includes(raw.toUpperCase()))upserts.push({exam_id:c.examId,student_id,component_id,obtained_mark:null,status:"ABS"});else upserts.push({exam_id:c.examId,student_id,component_id,obtained_mark:Number(raw),status:"MARK"});}
+    for(let i=0;i<upserts.length;i+=500){const {error}=await sb.from("marks").upsert(upserts.slice(i,i+500),{onConflict:"exam_id,student_id,component_id"});if(error)throw error;}
+    for(const [sid,cid] of deletes){const {error}=await sb.from("marks").delete().eq("exam_id",c.examId).eq("student_id",sid).eq("component_id",cid);if(error)throw error;}
+    toast(`Saved ${c.subject.name}: term Full Marks/Credit Hours and ${upserts.length} mark cell(s).`);await v15LoadMarksSheet();
+  }catch(e){console.error(e);toast(errMsg(e));}finally{buttons.forEach(b=>b.disabled=false);}
+}
+loadMarksSheet=async function(){return v15LoadMarksSheet();};
+loadSelectedMarksSheets=async function(){return v15LoadMarksSheet();};
+saveMarks=async function(){return v15SaveSetupAndMarks();};
+saveAllSelectedMarks=async function(){return v15SaveSetupAndMarks();};
+
+/* ---------- Result calculation with actual term FM ---------- */
+calculateClassResults=async function(examId,cls){
+  const [{data:students,error:e1},subjects,{data:marks,error:e3}]=await Promise.all([
+    sb.from("students").select("*").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("roll_no").order("name"),
+    v12EffectiveSubjects(examId,cls,null),
+    sb.from("marks").select("*").eq("exam_id",examId)
+  ]);if(e1)throw e1;if(e3)throw e3;const mm=new Map((marks||[]).map(x=>[`${x.student_id}_${x.component_id}`,x])),results=[];
+  for(const st of students||[]){let incomplete=false,anyNg=false,totalCredit=0,totalWgp=0;const subs=[];
+    for(const sub of subjects||[]){const roles=v15RoleComponents(sub.components||[]),comps=[roles.internal,roles.exam].filter(Boolean);if(!comps.length)continue;const out=[];
+      for(const c of comps){const mr=mm.get(`${st.id}_${c.id}`),status=mr?.status||"MISSING",obt=mr?.obtained_mark;let percent=null,g={grade:"-",grade_point:null,is_ng:false};if(status==="MISSING")incomplete=true;else{percent=status==="ABS"?0:(num(obt)/num(c.full_marks)*100);g=gradeForPercent(percent,c.pass_percent??(v15ComponentRole(c)==="internal"?40:35));if(g.is_ng)anyNg=true;}const ch=num(c.credit_hour),wgp=g.grade_point==null?null:ch*num(g.grade_point);out.push({...c,status,obtained_mark:obt,percent,...g,wgp});}
+      const credit=out.reduce((a,c)=>a+num(c.credit_hour),0),missing=out.some(c=>c.status==="MISSING"),ng=out.some(c=>c.is_ng);let finalGrade="-",gp=null,wgp=null;if(missing||credit<=0){incomplete=true;}else{totalCredit+=credit;if(ng){finalGrade="NG";}else{wgp=out.reduce((a,c)=>a+num(c.wgp),0);gp=wgp/credit;finalGrade=finalGradeForSubjectGP(gp);totalWgp+=wgp;}}subs.push({...sub,components:out,credit_hour:credit,final_grade:finalGrade,final_grade_point:gp,wgp,is_ng:ng});
+    }
+    let gpa=null,status="INCOMPLETE";if(!incomplete&&totalCredit>0){if(anyNg){gpa=0;status="NG";}else{gpa=Math.round((totalWgp/totalCredit+1e-12)*100)/100;status="PASS";}}results.push({student:st,subjects:subs,total_credit:totalCredit,total_wgp:totalWgp,gpa,gpa_display:gpa==null?"-":gpa.toFixed(2),status,incomplete,has_ng:anyNg});
+  }return results;
+};
+
+/* Keep grade sheets readable and show total WGP explicitly. */
+gradeSheetHtml=function(result,exam,cfg,issueDate){
+  const school=state.settings.school_name||"St Augustine Academic Foundation",addr=state.settings.school_address||"Suryodaya Municipality - 11, Tinghare";
+  return `<div class="print-sheet"><div class="print-school"><h1>${esc(school)}</h1><p>${esc(addr)}</p><p>ESTD. ${esc(state.settings.established||"2053")}</p></div><div class="print-title">${esc(cfg.assessment_label||exam.name)}</div><div class="print-meta"><div><b>Student:</b> ${esc(result.student.name)}</div><div><b>Class:</b> ${esc(result.student.class_name)}</div><div><b>Roll No.:</b> ${esc(result.student.roll_no||"")}</div><div><b>Symbol No.:</b> ${esc(result.student.symbol_no||"")}</div><div><b>B.S. Year:</b> ${esc(cfg.bs_year_text||currentYear()?.name||"")}</div><div><b>Date of Issue:</b> ${esc(issueDate||"-")}</div></div><table class="grade-table"><thead><tr><th>Subject</th><th>Part</th><th>FM</th><th>OM</th><th>Credit</th><th>Grade</th><th>GP</th><th>WGP</th></tr></thead><tbody>${result.subjects.map(s=>s.components.map((c,i)=>`<tr>${i===0?`<td rowspan="${s.components.length}"><strong>${esc(s.name)}</strong><br>Final: ${esc(s.final_grade)}</td>`:""}<td>${v15ComponentRole(c)==="internal"?"INTERNAL":"EXAM"}</td><td class="center">${num(c.full_marks)}</td><td class="center">${c.status==="ABS"?"ABS":c.status==="MISSING"?"-":num(c.obtained_mark)}</td><td class="center">${num(c.credit_hour).toFixed(2)}</td><td class="center">${esc(c.grade)}</td><td class="center">${c.grade_point==null?"-":num(c.grade_point).toFixed(2)}</td><td class="center">${c.wgp==null?"-":num(c.wgp).toFixed(2)}</td></tr>`).join("")).join("")}<tr class="grade-total-row"><td colspan="4"><strong>Overall Result: ${esc(result.status)}</strong></td><td class="center"><strong>${num(result.total_credit).toFixed(2)}</strong></td><td class="right"><strong>Total WGP</strong></td><td class="center"><strong>${num(result.total_wgp).toFixed(2)}</strong></td><td class="center"><strong>GPA ${result.gpa_display}</strong></td></tr></tbody></table><div class="v15-result-formula">Percentage = Obtained Marks ÷ Full Marks × 100 &nbsp; • &nbsp; WGP = Credit Hour × Grade Point &nbsp; • &nbsp; GPA = Total WGP ÷ Total Credit Hour</div><div class="print-foot"><span>Prepared By: ${esc(state.settings.prepared_by||"")}</span><span>Class Teacher: ${esc(cfg.class_teacher||"")}</span><span>Principal: ${esc(state.settings.principal_name||"")}</span></div></div>`;
+};
+
+_allClassComponents=async function(cls,examId=null){
+  const eid=num(examId||$("#markExam")?.value||state.selectedExamId);if(!eid){const rows=await v15OrderedClassSubjects(cls);const out=[];for(const s of rows){const r=v15RoleComponents(s.components||[]);for(const c of [r.internal,r.exam].filter(Boolean))out.push({...c,subject_id:s.id,subject_name:s.name});}return out;}
+  const subs=await v12EffectiveSubjects(eid,cls,null),out=[];for(const s of subs){const r=v15RoleComponents(s.components||[]);for(const c of [r.internal,r.exam].filter(Boolean))out.push({...c,subject_id:s.id,subject_name:s.name});}return out;
+};
+v8ClassCompletion=async function(examId,cls){
+  const [{data:students,error:e1},subjects,{data:marks,error:e3}]=await Promise.all([
+    sb.from("students").select("id").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true),
+    v12EffectiveSubjects(examId,cls,null),sb.from("marks").select("student_id,component_id").eq("exam_id",examId)
+  ]);if(e1)throw e1;if(e3)throw e3;const studentIds=new Set((students||[]).map(x=>num(x.id))),componentIds=new Set();for(const s of subjects||[]){const r=v15RoleComponents(s.components||[]);[r.internal,r.exam].filter(Boolean).forEach(c=>componentIds.add(num(c.id)));}const expected=studentIds.size*componentIds.size;let entered=0;for(const m of marks||[])if(studentIds.has(num(m.student_id))&&componentIds.has(num(m.component_id)))entered++;return {entered,expected,percent:expected?Math.round(entered/expected*1000)/10:0};
+};
+
+Object.assign(window,{renderSubjects,v15LoadSubjectAndCreditSetup,subjectDialog,v15DeleteSubject,v15MoveSubject,v15SaveCreditDefaults,renderMarks,loadMarkSubjects,v15LoadMarksSheet,loadMarksSheet,loadSelectedMarksSheets,v15SaveSetupAndMarks,saveMarks,saveAllSelectedMarks,calculateClassResults,gradeSheetHtml,_allClassComponents,v8ClassCompletion});
+
+/* v15 final grade-sheet renderer: preserve approved A4 design, show total CH/WGP/GPA. */
+gradeSheetHtml=function(result,exam,cfg,issueDate){
+  const st=result.student,year=String(cfg.bs_year_text||currentYear()?.name||""),ad=String(cfg.ad_year_text||v5AdYear(year)),assessment=String(cfg.assessment_label||exam.name||"").toUpperCase(),logo=state.settings.school_logo_path||"";let sn=0;
+  const rows=result.subjects.map(s=>{sn++;const lines=s.components.map(c=>({name:`${String(s.name).toUpperCase()}(${v15ComponentRole(c)==="internal"?"IN":"TH"})`,credit:c.credit_hour,gp:c.grade_point,grade:c.grade}));return `<tr><td class="c">${sn}</td><td>${lines.map(x=>esc(x.name)).join("<br>")}</td><td class="c">${lines.map(x=>num(x.credit).toFixed(2).replace(/\.00$/,"" )).join("<br>")}</td><td class="c">${lines.map(x=>x.gp==null?"-":num(x.gp).toFixed(1)).join("<br>")}</td><td class="c">${lines.map(x=>esc(x.grade||"-")).join("<br>")}</td><td class="c"><b>${esc(s.final_grade||"-")}</b></td></tr>`}).join("");
+  const roll=st.roll_no?`ROLL NO.: <b>${esc(st.roll_no)}</b> &nbsp;&nbsp; `:"";
+  return `<div class="grade-sheet"><div class="gs-border"></div>${logo?`<div class="gs-logo"><img src="${esc(logo)}" alt="School Logo"></div>`:""}<div class="gs-school">${esc(state.settings.school_name||"St Augustine Academic Foundation")}</div><div class="gs-address">${esc(state.settings.school_address||"Suryodaya Municipality - 11, Tinghare")}</div><div class="gs-estd">Estd: ${esc(state.settings.established||"2053")}</div><div class="gs-exam">${esc(String(exam.name||"").toUpperCase())}</div><div class="gs-title">GRADE-SHEET</div><div class="gs-info">THE GRADE(S) SECURED BY: <b>${esc(String(st.name||"").toUpperCase())}</b> DATE OF BIRTH ${esc(st.dob||"      /      /      ")} &nbsp;&nbsp; ${roll}SYMBOL NO.: <b>${esc(st.symbol_no||"-")}</b> GRADE: <b>${esc(v5ClassDisplay(st.class_name))}</b> IN THE ${esc(assessment)} OF YEAR ${esc(year)} B.S. (${esc(ad)} A.D.) ARE GIVEN BELOW.</div><table class="gs-main"><thead><tr><th>S.N.</th><th>SUBJECTS</th><th>CREDIT<br>HOUR</th><th>GRADE<br>POINT</th><th>GRADE</th><th>FINAL GRADE</th></tr></thead><tbody>${rows}<tr class="gpa-row"><td></td><td><b>TOTAL</b></td><td><b>${num(result.total_credit).toFixed(2)}</b></td><td colspan="2"><b>TOTAL WGP ${num(result.total_wgp).toFixed(2)}</b></td><td><b>GPA ${esc(result.gpa_display)}</b></td></tr></tbody></table><table class="gs-legend"><tbody><tr><td>A+</td><td>Outstanding</td><td>C+</td><td>Satisfactory</td></tr><tr><td>A</td><td>Excellent</td><td>C</td><td>Acceptable</td></tr><tr><td>B+</td><td>Very Good</td><td>D</td><td>Basic</td></tr><tr><td>B</td><td>Good</td><td>NG</td><td>Not Graded</td></tr></tbody></table><div class="gs-sign"><div class="line">PREPARED BY:${state.settings.prepared_by?` <b>${esc(String(state.settings.prepared_by).toUpperCase())}</b>`:""}</div><div class="line">CLASS TEACHER:${cfg.class_teacher?` <b>${esc(String(cfg.class_teacher).toUpperCase())}</b>`:""}</div><div class="line">DATE OF ISSUE:${issueDate?` <b>${esc(issueDate)}</b>`:""}</div><div class="gs-principal">PRINCIPAL</div></div><div class="gs-note-line"></div><div class="gs-notes">NOTE: ONE CREDIT HOUR EQUALS TO 32 WORKING HOURS.<br>INTERNAL(IN): INTERNAL / EVALUATION MARKS.<br>THEORY(TH): WRITTEN / EXAMINATION MARKS.<br>FORMULA: % = OM ÷ FM × 100; WGP = CREDIT HOUR × GRADE POINT; GPA = TOTAL WGP ÷ TOTAL CREDIT HOUR.<br>ABS: ABSENT <span class="gs-ng">NG: NOT GRADED</span></div></div>`;
+};
+window.gradeSheetHtml=gradeSheetHtml;
+
+
+/* ============================================================
+   v18 — SAFE UNPUBLISH + DYNAMIC GRADE SHEET
+   ------------------------------------------------------------
+   - Published/finalized class result can be safely returned to CALCULATED.
+   - Marks remain intact; Marks Entry becomes editable again.
+   - Grade Sheet hides Total WGP, adds Grade Remarks, Roman Grade heading,
+     stronger repeated school-name watermark, and dynamic flowing lower layout.
+   ============================================================ */
+
+function v18RomanGrade(cls){
+  const map={"Class 1":"I","Class 2":"II","Class 3":"III","Class 4":"IV","Class 5":"V","Class 6":"VI","Class 7":"VII","Class 8":"VIII","Class 9":"IX","Class 10":"X",Nursery:"NURSERY",LKG:"LKG",UKG:"UKG"};
+  return map[cls]||String(cls||"").replace(/^Class\s*/i,"").toUpperCase();
+}
+function v18GradeRemark(grade){
+  return ({"A+":"OUTSTANDING","A":"EXCELLENT","B+":"VERY GOOD","B":"GOOD","C+":"SATISFACTORY","C":"ACCEPTABLE","D":"BASIC","NG":"NOT GRADED","Error":"ERROR"})[String(grade||"")]||"-";
+}
+
+async function unpublishResult(){
+  const c=state.resultContext;
+  if(!c)return toast("Calculate results first.");
+  const current=String(c.pub?.status||"DRAFT").toUpperCase();
+  if(!["PUBLISHED","FINALIZED"].includes(current))return toast("This result is already editable.");
+  const action=current==="PUBLISHED"?"Unpublish this result and reopen Marks Entry for correction?\n\nAll existing marks will be kept.":"Return this finalized result to editable mode?\n\nAll existing marks will be kept.";
+  if(!confirm(action))return;
+  try{
+    const date=($("#issueDate")?.value||c.pub?.publish_date_bs||"").trim();
+    await v8SetClassResultStatus(c.examId,c.cls,"CALCULATED",date);
+    toast(current==="PUBLISHED"?"Result unpublished. Marks Entry is editable; correct marks, save, then publish again.":"Result returned to editable mode.");
+    await refreshResults();
+  }catch(e){console.error(e);toast(errMsg(e));}
+}
+
+const v18RefreshResultsBase=refreshResults;
+refreshResults=async function(){
+  await v18RefreshResultsBase();
+  const c=state.resultContext;if(!c)return;
+  const status=String(c.pub?.status||"DRAFT").toUpperCase();
+  let btn=$("#resUnpublishBtn");
+  if(["PUBLISHED","FINALIZED"].includes(status)){
+    if(!btn){
+      btn=document.createElement("button");
+      btn.id="resUnpublishBtn";
+      btn.type="button";
+      btn.className="btn red";
+      const publishBtn=$("#resPublishBtn");
+      if(publishBtn?.parentNode)publishBtn.parentNode.insertBefore(btn,publishBtn.nextSibling);
+    }
+    btn.textContent=status==="PUBLISHED"?"UNPUBLISH / EDIT":"RETURN TO EDIT";
+    btn.onclick=unpublishResult;
+    btn.style.display="";
+    if($("#resFinalizeBtn"))$("#resFinalizeBtn").disabled=true;
+    if($("#resPublishBtn"))$("#resPublishBtn").disabled=true;
+  }else if(btn){btn.remove();}
+};
+
+/* Final v19 grade sheet renderer. Existing result calculations are unchanged. */
+gradeSheetHtml=function(result,exam,cfg,issueDate){
+  const st=result.student,
+        year=String(cfg.bs_year_text||currentYear()?.name||""),
+        ad=String(cfg.ad_year_text||v5AdYear(year)),
+        assessment=String(cfg.assessment_label||exam.name||"").toUpperCase(),
+        logo=state.settings.school_logo_path||"",
+        gradeRoman=v18RomanGrade(st.class_name);
+  let sn=0;
+  const rows=result.subjects.map(s=>{
+    sn++;
+    const lines=s.components.map(c=>({
+      name:`${String(s.name).toUpperCase()}(${v15ComponentRole(c)==="internal"?"IN":"TH"})`,
+      credit:c.credit_hour,
+      gp:c.grade_point,
+      grade:c.grade
+    }));
+    return `<tr><td class="c">${sn}</td><td>${lines.map(x=>esc(x.name)).join("<br>")}</td><td class="c">${lines.map(x=>num(x.credit).toFixed(2).replace(/\.00$/,"")).join("<br>")}</td><td class="c">${lines.map(x=>x.gp==null?"-":num(x.gp).toFixed(1)).join("<br>")}</td><td class="c">${lines.map(x=>esc(x.grade||"-")).join("<br>")}</td><td class="c"><b>${esc(s.final_grade||"-")}</b></td><td class="c"><b>${esc(v18GradeRemark(s.final_grade))}</b></td></tr>`;
+  }).join("");
+  const roll=st.roll_no?`ROLL NO.: <b>${esc(st.roll_no)}</b> &nbsp;&nbsp; `:"";
+  const watermarks=Array.from({length:40},()=>`<span>ST. AUGUSTINE ACADEMIC FOUNDATION</span>`).join("");
+  const sparse=result.subjects.length<=4?" gs-sparse":"";
+  const roomy=result.subjects.length>=5&&result.subjects.length<=6?" gs-roomy":"";
+  const compact=result.subjects.length>8?" gs-compact":"";
+  const tight=result.subjects.length>10?" gs-tight":"";
+  return `<div class="grade-sheet${sparse}${roomy}${compact}${tight}">
+    <div class="gs-border"></div>
+    <div class="gs-watermark" aria-hidden="true">${watermarks}</div>
+    ${logo?`<div class="gs-logo"><img src="${esc(logo)}" alt="School Logo"></div>`:""}
+    <div class="gs-school">${esc(state.settings.school_name||"St Augustine Academic Foundation")}</div>
+    <div class="gs-address">${esc(state.settings.school_address||"Suryodaya Municipality - 11, Tinghare")}</div>
+    <div class="gs-estd">Estd: ${esc(state.settings.established||"2053")}</div>
+    <div class="gs-grade-head">GRADE ${esc(gradeRoman)}</div>
+    <div class="gs-exam">${esc(String(exam.name||"").toUpperCase())}</div>
+    <div class="gs-title">GRADE-SHEET</div>
+    <div class="gs-flow">
+      <div class="gs-info">THE GRADE(S) SECURED BY: <b>${esc(String(st.name||"").toUpperCase())}</b> DATE OF BIRTH ${esc(st.dob||"      /      /      ")} &nbsp;&nbsp; ${roll}SYMBOL NO.: <b>${esc(st.symbol_no||"-")}</b> GRADE: <b>${esc(gradeRoman)}</b> IN THE ${esc(assessment)} OF YEAR ${esc(year)} B.S. (${esc(ad)} A.D.) ARE GIVEN BELOW.</div>
+      <table class="gs-main"><thead><tr><th>S.N.</th><th>SUBJECTS</th><th>CREDIT<br>HOUR</th><th>GRADE<br>POINT</th><th>GRADE</th><th>FINAL GRADE</th><th>REMARKS</th></tr></thead><tbody>${rows}<tr class="gpa-row"><td></td><td><b>TOTAL</b></td><td><b>${num(result.total_credit).toFixed(2)}</b></td><td colspan="4"><b>GRADE POINT AVERAGE = ${esc(result.gpa_display)}</b></td></tr></tbody></table>
+      <table class="gs-legend"><tbody><tr><td>A+</td><td>Outstanding</td><td>C+</td><td>Satisfactory</td></tr><tr><td>A</td><td>Excellent</td><td>C</td><td>Acceptable</td></tr><tr><td>B+</td><td>Very Good</td><td>D</td><td>Basic</td></tr><tr><td>B</td><td>Good</td><td>NG</td><td>Not Graded</td></tr></tbody></table>
+      <div class="gs-sign"><div class="line gs-prepared-line">PREPARED BY: <span class="gs-dots">..........................</span></div><div class="line">CLASS TEACHER:${cfg.class_teacher?` <b>${esc(String(cfg.class_teacher).toUpperCase())}</b>`:""}</div><div class="line gs-date-line">DATE OF ISSUE:${issueDate?` <b>${esc(issueDate)}</b>`:""}</div><div class="gs-principal"><div class="gs-principal-dots">..........................</div><div class="gs-principal-name">${esc(String(state.settings.principal_name||"").toUpperCase())}</div><div class="gs-principal-role">PRINCIPAL</div></div></div>
+      <div class="gs-note-line"></div>
+      <div class="gs-notes">NOTE: ONE CREDIT HOUR EQUALS TO 32 WORKING HOURS.<br>INTERNAL(IN): INTERNAL / EVALUATION MARKS.<br>THEORY(TH): WRITTEN / EXAMINATION MARKS.<br>ABS: ABSENT <span class="gs-ng">NG: NOT GRADED</span></div>
+    </div>
+  </div>`;
+};
+
+Object.assign(window,{refreshResults,unpublishResult,gradeSheetHtml,v18RomanGrade,v18GradeRemark});

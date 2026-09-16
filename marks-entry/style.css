@@ -27,6 +27,130 @@ html,body{margin:0;min-height:100%;font-family:"Segoe UI",Arial,sans-serif;backg
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);display:grid;place-items:center;z-index:300;padding:20px}.modal{width:min(820px,95vw);max-height:92vh;overflow:hidden;background:var(--bg);border:1px solid #555;display:flex;flex-direction:column}.modal-head{display:flex;justify-content:space-between;align-items:center;background:#fff;border-bottom:1px solid var(--border);padding:13px 16px}.modal-head small{color:var(--muted);font-size:10px}.modal-head h3{margin:3px 0 0}.close-btn{width:38px;height:36px;border:1px solid #aaa;background:#fff;cursor:pointer}.modal-content{padding:16px;overflow:auto}.modal-content>.form-grid,.modal-content>form{background:#fff;border:1px solid var(--border);padding:18px}
 .toast{position:fixed;right:20px;bottom:20px;z-index:999;background:#202020;color:#fff;padding:12px 16px;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none;max-width:440px}.toast.show{opacity:1;transform:translateY(0)}
 /* exact-style grade sheet based on desktop pdf_grade_sheet.py */
-.grade-sheet{width:210mm;height:297mm;background:#fff;color:#000;margin:0 auto;position:relative;font-family:Arial,sans-serif;padding:0;overflow:hidden}.gs-border{position:absolute;left:10.5mm;top:8.5mm;width:189mm;height:280mm;border:1.35px solid #000}.gs-logo{position:absolute;left:32mm;top:19mm;width:20mm;height:20mm;display:flex;align-items:center;justify-content:center}.gs-logo img{max-width:15mm;max-height:15mm;object-fit:contain}.gs-school{position:absolute;top:21mm;left:45mm;right:20mm;text-align:center;color:#4472C4;font-family:"Old English Text MT","Times New Roman",serif;font-weight:700;font-size:22.5pt;white-space:nowrap}.gs-address{position:absolute;top:35mm;left:30mm;right:20mm;text-align:center;font-weight:700;font-size:8pt}.gs-estd{position:absolute;top:41mm;left:30mm;right:20mm;text-align:center;font-size:7.6pt}.gs-exam{position:absolute;top:52mm;left:20mm;right:20mm;text-align:center;font-weight:700;font-size:8.2pt}.gs-title{position:absolute;top:59mm;left:20mm;right:20mm;text-align:center;font-weight:700;font-size:10.2pt;color:#f00}.gs-info{position:absolute;top:69mm;left:17mm;width:176mm;font-size:6.2pt;line-height:1.25}.gs-main{position:absolute;top:88mm;left:17mm;width:176mm;border-collapse:collapse;font-size:6.8pt}.gs-main th,.gs-main td{border:.65px solid #000;padding:3px;vertical-align:middle}.gs-main th{text-align:center;height:9mm}.gs-main .c{text-align:center}.gs-main .gpa-row td{height:6mm;font-weight:700;text-align:center}.gs-legend{position:absolute;top:184mm;left:17mm;width:92mm;border-collapse:collapse;font-size:6.1pt}.gs-legend td{border:.65px solid #000;padding:4px;height:7mm}.gs-sign{position:absolute;left:17mm;right:17mm;top:229mm;font-size:6.15pt}.gs-sign .line{margin-bottom:5mm}.gs-principal{position:absolute;right:0;top:10mm}.gs-note-line{position:absolute;left:10.5mm;right:10.5mm;top:246mm;border-top:1.05px solid #000}.gs-notes{position:absolute;left:17mm;right:17mm;top:252mm;color:#4472C4;font-size:6.15pt;font-weight:700;line-height:3.05}.gs-ng{float:right}.print-batch .grade-sheet{break-after:page;page-break-after:always}.print-batch .grade-sheet:last-child{break-after:auto;page-break-after:auto}
+.grade-sheet{width:210mm;height:297mm;background:#fff;color:#000;margin:0 auto;position:relative;font-family:Arial,sans-serif;padding:0;overflow:hidden}.gs-border{position:absolute;left:10.5mm;top:8.5mm;width:189mm;height:280mm;border:1.35px solid #000}.gs-logo{position:absolute;left:32mm;top:19mm;width:20mm;height:20mm;display:flex;align-items:center;justify-content:center}.gs-logo img{max-width:15mm;max-height:15mm;object-fit:contain}.gs-school{position:absolute;top:21mm;left:45mm;right:20mm;text-align:center;color:#4472C4;font-family:"Old English Text MT","Times New Roman",serif;font-weight:700;font-size:22.5pt;white-space:nowrap}.gs-address{position:absolute;top:35mm;left:30mm;right:20mm;text-align:center;font-weight:700;font-size:8pt}.gs-estd{position:absolute;top:41mm;left:30mm;right:20mm;text-align:center;font-size:7.6pt}.gs-exam{position:absolute;top:52mm;left:20mm;right:20mm;text-align:center;font-weight:700;font-size:9.2pt}.gs-title{position:absolute;top:59mm;left:20mm;right:20mm;text-align:center;font-weight:700;font-size:11.2pt;color:#f00}.gs-info{position:absolute;top:69mm;left:17mm;width:176mm;font-size:7.3pt;line-height:1.35}.gs-main{position:absolute;top:88mm;left:17mm;width:176mm;border-collapse:collapse;font-size:7.8pt;line-height:1.18}.gs-main th,.gs-main td{border:.65px solid #000;padding:3.4px 3px;vertical-align:middle}.gs-main th{text-align:center;height:9mm}.gs-main .c{text-align:center}.gs-main .gpa-row td{height:6mm;font-weight:700;text-align:center}.gs-legend{position:absolute;top:184mm;left:17mm;width:92mm;border-collapse:collapse;font-size:6.9pt}.gs-legend td{border:.65px solid #000;padding:4px;height:7mm}.gs-sign{position:absolute;left:17mm;right:17mm;top:229mm;font-size:7pt}.gs-sign .line{margin-bottom:5mm}.gs-principal{position:absolute;right:0;top:10mm}.gs-note-line{position:absolute;left:10.5mm;right:10.5mm;top:246mm;border-top:1.05px solid #000}.gs-notes{position:absolute;left:17mm;right:17mm;top:252mm;color:#4472C4;font-size:6.8pt;font-weight:700;line-height:2.75}.gs-ng{float:right}.print-batch .grade-sheet{break-after:page;page-break-after:always}.print-batch .grade-sheet:last-child{break-after:auto;page-break-after:auto}
 @media(max-width:1180px){body{min-width:1180px}.login-shell{min-width:1180px}.desktop-shell{min-width:1180px}.dashboard-cards{grid-template-columns:repeat(4,1fr)}}
 @media print{body{background:#fff;min-width:0}.login-shell,.sidebar,.page-head,.toast,.modal-backdrop,.no-print{display:none!important}.desktop-shell{display:block;min-width:0}.main{display:block;padding:0}#content{padding:0}.grade-sheet{break-inside:avoid;page-break-inside:avoid}.print-batch .grade-sheet{break-after:page;page-break-after:always}.print-batch .grade-sheet:last-child{break-after:auto;page-break-after:auto}@page{size:A4 portrait;margin:0}}
+
+/* v14 result readability */
+.result-summary .summary-box strong{font-size:22px}.results-list-table td,.results-list-table th{font-size:13px}
+
+/* v15 — simple subject/default credit/term marks workflow */
+.v15-credit-input{width:110px;max-width:100%;text-align:center;border:1px solid #aeb9c9;padding:7px 6px}
+.v15-credit-total-row td{background:#eef3fb!important;font-size:14px}
+.v15-term-setup{display:grid;grid-template-columns:minmax(240px,1fr) minmax(240px,1fr) minmax(300px,1.2fr);gap:10px;margin:10px 0 12px}
+.v15-term-card,.v15-formula-card{border:1px solid var(--border);background:#f8fbff;padding:12px}
+.v15-term-card>strong,.v15-formula-card>strong{display:block;color:var(--navy2);font-size:14px;margin-bottom:8px}
+.v15-term-card label{display:grid;grid-template-columns:1fr 115px;align-items:center;gap:8px;margin:7px 0;font-size:12px;font-weight:600}
+.v15-term-card input{width:100%;border:1px solid #7d8998;padding:7px;text-align:center}
+.v15-term-card small{display:block;color:var(--muted);margin-top:6px}
+.v15-formula-card span{display:block;margin:7px 0;font-size:12px;font-weight:600;color:var(--navy2)}
+.v15-marks-table{min-width:900px!important}.v15-marks-table th,.v15-marks-table td{font-size:13px!important}.v15-marks-table .mark-input{width:105px;font-size:14px;font-weight:600}
+.v15-result-formula{font-size:10px;text-align:center;margin-top:6px;font-weight:600}
+/* slightly larger grade-sheet text while preserving the approved A4 geometry */
+.gs-info{font-size:8pt}.gs-main{font-size:8.7pt}.gs-main th,.gs-main td{padding:3.7px 3.2px}.gs-legend{font-size:7.4pt}.gs-sign{font-size:7.5pt}.gs-notes{font-size:7.1pt;line-height:2.45}
+@media(max-width:1180px){.v15-term-setup{grid-template-columns:1fr 1fr 1.2fr}}
+
+
+/* ============================================================
+   v18 — dynamic grade sheet / stronger watermark / safe flow
+   ============================================================ */
+.grade-sheet{height:297mm;min-height:297mm;overflow:hidden;position:relative;background:#fff}
+.grade-sheet>.gs-border,.grade-sheet>.gs-logo,.grade-sheet>.gs-school,.grade-sheet>.gs-address,.grade-sheet>.gs-estd,.grade-sheet>.gs-grade-head,.grade-sheet>.gs-exam,.grade-sheet>.gs-title,.grade-sheet>.gs-flow{z-index:2}
+.gs-watermark{position:absolute;left:11mm;right:11mm;top:9mm;bottom:9mm;z-index:0;overflow:hidden;display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:1fr;gap:0;align-items:center;justify-items:center;pointer-events:none}
+.gs-watermark span{display:block;width:48mm;text-align:center;white-space:nowrap;color:#4472C4;opacity:.105;font-size:5.2pt;font-weight:600;transform:rotate(-7deg);transform-origin:center}
+.gs-logo,.gs-school,.gs-address,.gs-estd,.gs-grade-head,.gs-exam,.gs-title,.gs-flow{position:absolute}
+.gs-grade-head{top:45.5mm;left:25mm;right:20mm;text-align:center;font-weight:700;font-size:8.5pt}
+.gs-exam{top:51.5mm}.gs-title{top:58.5mm}
+.gs-flow{top:67mm;left:17mm;right:17mm;bottom:12mm;display:flex;flex-direction:column;overflow:hidden}
+.gs-flow .gs-info{position:static!important;top:auto!important;left:auto!important;width:auto!important;margin:0 0 3mm;font-size:8pt;line-height:1.35;flex:0 0 auto}
+.gs-flow .gs-main{position:static!important;top:auto!important;left:auto!important;width:100%!important;margin:0;border-collapse:collapse;font-size:8.4pt;line-height:1.17;flex:0 0 auto;table-layout:fixed}
+.gs-main th,.gs-main td{padding:3.2px 3px}
+.gs-main th:nth-child(1){width:7%}.gs-main th:nth-child(2){width:35%}.gs-main th:nth-child(3){width:11%}.gs-main th:nth-child(4){width:11%}.gs-main th:nth-child(5){width:9%}.gs-main th:nth-child(6){width:11%}.gs-main th:nth-child(7){width:16%}
+.gs-main .gpa-row td{height:6mm;text-align:center;font-weight:700}
+.gs-flow .gs-legend{position:static!important;top:auto!important;left:auto!important;width:92mm!important;margin:6mm 0 0;border-collapse:collapse;font-size:7.3pt;flex:0 0 auto}
+.gs-flow .gs-legend td{padding:3.2px 4px;height:6.5mm}
+.gs-flow .gs-sign{position:relative!important;top:auto!important;left:auto!important;right:auto!important;margin:8mm 0 0;min-height:29mm;padding:0;font-size:7.5pt;flex:0 0 auto}
+.gs-flow .gs-sign .line{margin-bottom:4mm;line-height:1.25}
+.gs-flow .gs-sign .gs-date-line{margin-bottom:0;padding-bottom:2mm}
+.gs-flow .gs-principal{position:absolute;right:0;bottom:8mm;top:auto}
+.gs-flow .gs-note-line{position:static!important;top:auto!important;left:auto!important;right:auto!important;margin:2mm -6.5mm 0;border-top:1.05px solid #000;flex:0 0 auto}
+.gs-flow .gs-notes{position:static!important;top:auto!important;left:auto!important;right:auto!important;margin:3mm 0 0;color:#204d8f;font-size:7pt;font-weight:700;line-height:1.85;flex:0 0 auto}
+.gs-compact .gs-main{font-size:7.8pt}.gs-compact .gs-main th,.gs-compact .gs-main td{padding:2.3px 2.4px}.gs-compact .gs-flow .gs-info{margin-bottom:2mm;font-size:7.6pt}.gs-compact .gs-flow .gs-legend{margin-top:4mm;font-size:7pt}.gs-compact .gs-flow .gs-legend td{height:5.5mm;padding:2.5px 3px}.gs-compact .gs-flow .gs-sign{margin-top:5mm;min-height:25mm}.gs-compact .gs-flow .gs-sign .line{margin-bottom:3mm}.gs-compact .gs-flow .gs-notes{margin-top:2mm;font-size:6.7pt;line-height:1.65}
+.gs-tight .gs-main{font-size:7.1pt;line-height:1.08}.gs-tight .gs-main th,.gs-tight .gs-main td{padding:1.6px 2px}.gs-tight .gs-main th{height:7.5mm}.gs-tight .gs-flow .gs-legend{margin-top:2.5mm;font-size:6.5pt}.gs-tight .gs-flow .gs-legend td{height:4.8mm;padding:2px 2.5px}.gs-tight .gs-flow .gs-sign{margin-top:3mm;min-height:22mm;font-size:6.9pt}.gs-tight .gs-flow .gs-sign .line{margin-bottom:2.2mm}.gs-tight .gs-flow .gs-notes{font-size:6.2pt;line-height:1.5}
+@media print{.gs-watermark{-webkit-print-color-adjust:exact;print-color-adjust:exact}.grade-sheet{overflow:hidden}}
+
+/* ============================================================
+   v19 — A4 typography, exact header centering, straight watermark,
+         prepared-by line and principal signature/name block
+   ============================================================ */
+/* Keep the logo independent so the school name stays on the true page centre. */
+.gs-logo{left:20mm;top:18.5mm;width:19mm;height:19mm}
+.gs-logo img{max-width:16mm;max-height:16mm}
+.gs-school{top:19.8mm;left:17mm;right:17mm;text-align:center;font-size:24pt;line-height:1.05;white-space:nowrap}
+.gs-address{top:34.5mm;left:17mm;right:17mm;text-align:center;font-size:9.1pt}
+.gs-estd{top:41mm;left:17mm;right:17mm;text-align:center;font-size:8.3pt}
+.gs-grade-head{top:46.2mm;left:17mm;right:17mm;font-size:9.6pt}
+.gs-exam{top:52.4mm;left:17mm;right:17mm;font-size:10.4pt}
+.gs-title{top:59.4mm;left:17mm;right:17mm;font-size:12.6pt}
+.gs-flow{top:68.5mm}
+.gs-flow .gs-info{font-size:8.7pt;line-height:1.38}
+.gs-flow .gs-main{font-size:9pt;line-height:1.2}
+.gs-main th,.gs-main td{padding:3.6px 3.1px}
+.gs-flow .gs-legend{font-size:7.8pt}
+.gs-flow .gs-sign{font-size:8.2pt}
+.gs-flow .gs-notes{font-size:7.35pt;line-height:1.78}
+
+/* Straight, medium-light repeated school-name watermark across the whole A4 sheet. */
+.gs-watermark{left:11.5mm;right:11.5mm;top:10mm;bottom:10mm;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;row-gap:0;column-gap:1mm}
+.gs-watermark span{width:60mm;color:#4472C4;opacity:.145;font-size:5.9pt;font-weight:700;transform:none;letter-spacing:.1px}
+
+/* Requested signature layout. */
+.gs-prepared-line .gs-dots{font-weight:700;letter-spacing:.35px}
+.gs-flow .gs-principal{position:absolute;right:0;bottom:5.5mm;top:auto;min-width:50mm;text-align:center;line-height:1.35}
+.gs-principal-dots{font-weight:700;letter-spacing:.45px;margin-bottom:1.2mm;white-space:nowrap}
+.gs-principal-name{font-weight:700;min-height:4mm;white-space:nowrap}
+.gs-principal-role{font-weight:700;margin-top:.7mm}
+
+/* When more subjects are present, keep everything on A4 without clipping. */
+.gs-compact .gs-school{font-size:23pt}
+.gs-compact .gs-flow .gs-info{font-size:8.1pt}
+.gs-compact .gs-main{font-size:8.3pt}
+.gs-compact .gs-flow .gs-sign{font-size:7.7pt}
+.gs-compact .gs-flow .gs-notes{font-size:6.9pt}
+.gs-tight .gs-school{font-size:22pt}
+.gs-tight .gs-flow .gs-info{font-size:7.6pt}
+.gs-tight .gs-main{font-size:7.5pt}
+.gs-tight .gs-flow .gs-sign{font-size:7.1pt}
+.gs-tight .gs-flow .gs-notes{font-size:6.35pt}
+@media print{
+  .gs-watermark span{opacity:.145!important}
+  .gs-school,.gs-address,.gs-estd,.gs-grade-head,.gs-exam,.gs-title{text-align:center!important}
+}
+
+
+/* ============================================================
+   v21 — clean notes + subject-count-aware A4 balancing
+   ------------------------------------------------------------
+   Keep the approved typography readable. Fewer subjects get
+   slightly taller rows and more breathing room; larger classes
+   progressively compact only when necessary to stay on one A4.
+   ============================================================ */
+.gs-sparse .gs-flow .gs-main{font-size:9.35pt;line-height:1.28}
+.gs-sparse .gs-main th{height:10.5mm}
+.gs-sparse .gs-main tbody tr:not(.gpa-row) td{padding-top:6px;padding-bottom:6px;min-height:11mm}
+.gs-sparse .gs-main .gpa-row td{height:8mm}
+.gs-sparse .gs-flow .gs-legend{margin-top:9mm;font-size:8pt}
+.gs-sparse .gs-flow .gs-sign{margin-top:11mm;min-height:31mm;font-size:8.3pt}
+.gs-sparse .gs-flow .gs-note-line{margin-top:4mm}
+.gs-sparse .gs-flow .gs-notes{margin-top:4mm;font-size:7.45pt;line-height:2.05}
+
+.gs-roomy .gs-flow .gs-main{font-size:9.15pt;line-height:1.24}
+.gs-roomy .gs-main th{height:9.5mm}
+.gs-roomy .gs-main tbody tr:not(.gpa-row) td{padding-top:4.8px;padding-bottom:4.8px}
+.gs-roomy .gs-flow .gs-legend{margin-top:7mm}
+.gs-roomy .gs-flow .gs-sign{margin-top:9mm;min-height:30mm}
+.gs-roomy .gs-flow .gs-note-line{margin-top:3mm}
+.gs-roomy .gs-flow .gs-notes{margin-top:3.5mm}
+
+/* Formula remains part of the calculation engine only, not the printed result. */
+.v15-result-formula{display:none!important}
