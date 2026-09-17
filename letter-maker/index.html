@@ -1,1 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>St. Augustine Letter Maker</title>
+  <link rel="stylesheet" href="style.css?v=1.1">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark">SA</div><div><strong>ST. AUGUSTINE ACADEMIC FOUNDATION</strong><small>Letter Maker</small></div></div>
+    <div class="top-actions"><span id="modeBadge" class="badge">Checking…</span><a class="back-btn" href="../index.html">← Accounts</a></div>
+  </header>
 
+  <main class="shell">
+    <section id="dashboardView">
+      <div class="hero">
+        <div><span class="eyebrow">OFFICIAL SCHOOL CORRESPONDENCE</span><h1>Letter Maker</h1><p>Create, preview, save, print and reuse school letters using the official St. Augustine letterhead.</p></div>
+        <div class="hero-stamp">A4</div>
+      </div>
+      <div id="setupNote" class="setup-note hidden"></div>
+      <div class="cards">
+        <button class="type-card blue" data-type="official"><span class="icon">▤</span><strong>Official Letter</strong><small>Office, municipality, institution and formal correspondence</small><b>Create Letter →</b></button>
+        <button class="type-card green" data-type="parent"><span class="icon">♟</span><strong>Parent / Student Letter</strong><small>Short notices and letters for parents or students</small><b>Create Letter →</b></button>
+        <button class="type-card amber" data-type="custom"><span class="icon">✎</span><strong>Custom Letter</strong><small>Flexible blank letter for any other purpose</small><b>Start Blank →</b></button>
+        <button class="type-card violet" id="historyBtn"><span class="icon">↶</span><strong>Letter History</strong><small>Open, duplicate, print or delete earlier letters</small><b>View History →</b></button>
+      </div>
+      <section class="history-panel" id="recentPanel"><div class="section-head"><div><h2>Recent Letters</h2><p>Your most recently saved letters appear here.</p></div><button class="ghost" id="refreshHistory">Refresh</button></div><div id="recentLetters"></div></section>
+    </section>
+
+    <section id="editorView" class="hidden">
+      <div class="editor-head"><div><button class="ghost" id="backDashboard">← Dashboard</button><span class="eyebrow" id="editorEyebrow">LETTER</span><h1 id="editorTitle">Create Letter</h1></div><div class="editor-actions"><button class="ghost" id="clearBtn">Clear</button><button class="primary" id="saveBtn">Save Letter</button><button class="print" id="printBtn">Print / PDF</button></div></div>
+      <div class="editor-grid">
+        <aside class="control-panel">
+          <input id="letterId" type="hidden">
+          <div class="form-grid two official-only"><label>प.स.<input id="patraSankhya"></label><label>च.न.<input id="chalanNo" inputmode="numeric"></label></div>
+          <div class="form-grid two"><label>मिति<input id="letterDate" placeholder="2083-06-01"></label><label class="official-only">नेपाल संवत् (वैकल्पिक)<input id="nepalSambat"></label></div>
+          <label>प्राप्तकर्ता<input id="recipient" placeholder="श्रीमान् प्रमुख ज्यू / माननीय अभिभावकज्यू"></label>
+          <div class="official-only"><label>कार्यालय / शाखा<input id="office"></label><label>ठेगाना<textarea id="address" rows="2"></textarea></label></div>
+          <label>विषय<input id="subject"></label>
+          <label class="official-only">सम्बोधन<input id="salutation" value="महोदय,"></label>
+          <label>पत्रको व्यहोरा<textarea id="bodyText" rows="10" placeholder="यहाँ पत्रको मुख्य व्यहोरा लेख्नुहोस्..."></textarea></label>
+
+          <div class="table-block official-only">
+            <div class="block-head"><div><strong>तालिका</strong><small>विद्यार्थी वा अन्य विवरण चाहिएको पत्रमा मात्र प्रयोग गर्नुहोस्।</small></div><label class="switch"><input id="tableEnabled" type="checkbox"><span></span></label></div>
+            <div id="tableEditor" class="hidden">
+              <div class="table-toolbar"><button class="ghost" id="addRowBtn" type="button">+ Add Row</button><button class="ghost" id="resetTableBtn" type="button">Reset</button></div>
+              <div class="table-edit-wrap"><table id="editTable"><thead></thead><tbody></tbody></table></div>
+            </div>
+          </div>
+
+          <label>हस्ताक्षर पद<input id="signatureTitle" value="प्रधानाध्यापक"></label>
+          <label>हस्ताक्षर संस्था / ठेगाना<textarea id="signatureOrg" rows="3">सेन्ट अगस्टाइन एकेडेमिक फाउण्डेशन\nसूर्योदय नगरपालिका-११</textarea></label>
+          <label>सम्पर्क नं.<input id="signaturePhone" value="९८६४१८५१२२"></label>
+          <div class="mobile-actions"><button class="primary" id="saveBtnMobile">Save Letter</button><button class="print" id="printBtnMobile">Print / PDF</button></div>
+        </aside>
+
+        <section class="preview-panel">
+          <div class="preview-title"><strong>Live Preview (A4)</strong><span>Official Letterhead</span></div>
+          <div class="paper-stage"><div id="letterPaper" class="letter-paper"></div></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="historyView" class="hidden">
+      <div class="editor-head"><div><button class="ghost" id="historyBack">← Dashboard</button><span class="eyebrow">ARCHIVE</span><h1>Letter History</h1></div><div><button class="ghost" id="historyRefresh2">Refresh</button></div></div>
+      <div class="history-tools"><input id="historySearch" placeholder="Search subject, recipient, office or date"><select id="historyType"><option value="">All Types</option><option value="official">Official Letter</option><option value="parent">Parent / Student Letter</option><option value="custom">Custom Letter</option></select></div>
+      <div id="historyList"></div>
+    </section>
+  </main>
+
+  <script src="app.js?v=1.1"></script>
+</body>
+</html>
