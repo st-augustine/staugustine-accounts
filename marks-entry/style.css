@@ -154,3 +154,21 @@ html,body{margin:0;min-height:100%;font-family:"Segoe UI",Arial,sans-serif;backg
 
 /* Formula remains part of the calculation engine only, not the printed result. */
 .v15-result-formula{display:none!important}
+
+/* ============================================================
+   v27 — Full Marks conflict visibility
+   ============================================================ */
+.v27-conflict-box{border:2px solid #D64545;background:#FFF3F2;padding:12px;margin:10px 0 12px}
+.v27-conflict-title{font-size:15px;font-weight:800;color:#A61F1F;margin-bottom:5px}
+.v27-conflict-note{font-size:12px;color:#7E251F;margin-bottom:9px;line-height:1.45}
+.v27-conflict-table{min-width:760px!important}
+.v27-conflict-table th{background:#F8D9D6!important;color:#7E251F}
+.v27-conflict-table .v27-over-mark{background:#FFD9D6!important;color:#A61F1F;font-size:14px}
+.v27-conflict-student{background:#FFF0EF!important;color:#9D1F14}
+.v27-full-conflict{background:#FFF0EF!important}
+.mark-input.saved-over-full{background:#FFDAD7!important;border:2px solid #D64545!important;color:#A61F1F!important;font-weight:800}
+.v27-student-conflict-row .fixed-col{background:#FFF0EF!important}
+.v27-student-conflict{color:#A61F1F!important;font-weight:800}
+.v27-warning{color:#D64545;font-weight:900}
+.v27-component-conflict td{background:#FFF0EF!important}
+.v27-fm-conflict-input{background:#FFDAD7!important;border:2px solid #D64545!important;color:#A61F1F!important;font-weight:800}

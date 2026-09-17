@@ -631,8 +631,9 @@ function _v4SubjectBodyCells(subject,student,rowIndex,mMap){
   return `<td class="subject-abs-cell"><input class="subject-absent" type="checkbox" data-subject="${subjectId}" data-row="${rowIndex}" ${allAbs?"checked":""}></td>`+
     comps.map((c,ci)=>{
       const m=mMap.get(`${student.id}_${c.id}`);
-      const v=m?(m.status==="ABS"?"ABS":m.obtained_mark??""):"";
-      return `<td class="subject-full-cell">${num(c.full_marks)}</td><td class="subject-mark-cell"><input class="mark-input ${v==="ABS"?"abs":""}" data-subject="${subjectId}" data-row="${rowIndex}" data-col="${ci}" data-student="${student.id}" data-component="${c.id}" data-full="${num(c.full_marks)}" value="${esc(v)}" autocomplete="off" ${allAbs?"disabled":""}></td>`;
+      const v=m?(m.status==="ABS"?"ABS":m.obtained_mark??""):"",conflict=v27SavedMarkOverFull(m,c.full_marks);
+      const tip=conflict?` title="Saved mark ${esc(v)} is above Full Marks ${esc(num(c.full_marks))}"`:"";
+      return `<td class="subject-full-cell ${conflict?"v27-full-conflict":""}">${num(c.full_marks)}</td><td class="subject-mark-cell ${conflict?"v27-full-conflict":""}"><input class="mark-input ${v==="ABS"?"abs":""} ${conflict?"invalid saved-over-full":""}" data-subject="${subjectId}" data-row="${rowIndex}" data-col="${ci}" data-student="${student.id}" data-component="${c.id}" data-full="${num(c.full_marks)}" value="${esc(v)}" autocomplete="off" ${allAbs?"disabled":""}${tip}></td>`;
     }).join("");
 }
 
@@ -1487,6 +1488,78 @@ async function v12EffectiveSubjects(examId,cls,subjectIds=null,{ensure=true}={})
     .sort((a,b)=>num(a.sort_order)-num(b.sort_order)||num(a.id)-num(b.id))}));
 }
 
+
+/* ============================================================
+   v27 — FULL MARKS CONFLICT VISIBILITY
+   Shows exactly which saved marks exceed the selected/proposed
+   Full Marks, and highlights those students/cells in red.
+   ============================================================ */
+function v27SavedMarkOverFull(mark,full){
+  if(!mark||String(mark.status||"").toUpperCase()==="ABS")return false;
+  const om=Number(mark.obtained_mark),fm=Number(full);
+  return Number.isFinite(om)&&Number.isFinite(fm)&&om>fm+1e-12;
+}
+
+function v27StudentHasConflict(student,subjects,mMap){
+  return (subjects||[]).some(s=>(s.components||[]).some(c=>v27SavedMarkOverFull(mMap.get(`${student.id}_${c.id}`),c.full_marks)));
+}
+
+function v27ConflictHtml(conflicts,title="Full Marks Conflict Found"){
+  if(!(conflicts||[]).length)return "";
+  return `<div class="v27-conflict-box"><div class="v27-conflict-title">⚠ ${esc(title)}</div><div class="v27-conflict-note">The red saved mark is higher than the Full Marks for this examination/component. Correct that obtained mark or increase the Full Marks before saving the setup.</div><div class="table-wrap"><table class="v27-conflict-table"><thead><tr><th>Roll</th><th>Student</th><th>Subject</th><th>Component</th><th>Full Marks</th><th>Saved Obtained Mark</th></tr></thead><tbody>${conflicts.map(x=>`<tr><td>${esc(x.roll_no||"")}</td><td class="v27-conflict-student"><strong>${esc(x.name||"")}</strong>${x.active===false?` <small>(Inactive)</small>`:""}</td><td>${esc(x.subject_name||"")}</td><td>${esc(x.component_label||x.component_code||"")}</td><td class="center">${esc(x.full_marks)}</td><td class="center v27-over-mark"><strong>${esc(x.obtained_mark)}</strong></td></tr>`).join("")}</tbody></table></div></div>`;
+}
+
+async function v27FindFullMarkConflicts(examId,cls,{subjectIds=null,proposedFullMarks=null}={}){
+  let sreq=sb.from("subjects").select("id,name,sort_order,components(id,code,label,full_marks,sort_order)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");
+  if(Array.isArray(subjectIds)&&subjectIds.length)sreq=sreq.in("id",subjectIds.map(num));
+  const [{data:students,error:ste},{data:subjects,error:sue}]=await Promise.all([
+    sb.from("students").select("id,roll_no,name,active").eq("academic_year_id",state.yearId).eq("class_name",cls),
+    sreq
+  ]);
+  if(ste)throw ste;if(sue)throw sue;
+  const sts=students||[],subs=subjects||[];
+  const studentIds=sts.map(x=>num(x.id)).filter(Boolean),compIds=subs.flatMap(s=>(s.components||[]).map(c=>num(c.id))).filter(Boolean);
+  if(!studentIds.length||!compIds.length)return [];
+  const [{data:settings,error:se},{data:marks,error:me}]=await Promise.all([
+    sb.from("exam_component_settings").select("component_id,full_marks").eq("exam_id",examId).in("component_id",compIds),
+    sb.from("marks").select("student_id,component_id,obtained_mark,status").eq("exam_id",examId).in("student_id",studentIds).in("component_id",compIds)
+  ]);
+  if(se)throw se;if(me)throw me;
+  const stMap=new Map(sts.map(x=>[num(x.id),x])),settingMap=new Map((settings||[]).map(x=>[num(x.component_id),Number(x.full_marks)]));
+  const compMap=new Map();
+  for(const sub of subs||[])for(const c of sub.components||[]){
+    const cid=num(c.id);
+    const proposed=proposedFullMarks instanceof Map&&proposedFullMarks.has(cid)?Number(proposedFullMarks.get(cid)):null;
+    const fm=Number.isFinite(proposed)?proposed:(settingMap.has(cid)?Number(settingMap.get(cid)):Number(c.full_marks));
+    compMap.set(cid,{component_id:cid,subject_id:num(sub.id),subject_name:sub.name,component_code:c.code,component_label:c.label||c.code,full_marks:fm,subject_sort:num(sub.sort_order),component_sort:num(c.sort_order)});
+  }
+  const out=[];
+  for(const m of marks||[]){
+    const c=compMap.get(num(m.component_id)),st=stMap.get(num(m.student_id));if(!c||!st)continue;
+    if(v27SavedMarkOverFull(m,c.full_marks))out.push({...c,student_id:num(st.id),roll_no:st.roll_no,name:st.name,active:st.active,obtained_mark:Number(m.obtained_mark)});
+  }
+  out.sort((a,b)=>{const ar=Number(a.roll_no),br=Number(b.roll_no),af=Number.isFinite(ar),bf=Number.isFinite(br);if(af&&bf&&ar!==br)return ar-br;if(af!==bf)return af?-1:1;return String(a.roll_no||"").localeCompare(String(b.roll_no||""),undefined,{numeric:true})||a.subject_sort-b.subject_sort||a.component_sort-b.component_sort||String(a.name||"").localeCompare(String(b.name||""));});
+  return out;
+}
+
+async function v27CheckTermSetupConflicts({toastOnConflict=false}={}){
+  const box=$("#v27TermConflictBox"),examId=num($("#v12TermExam")?.value),cls=$("#subjectClass")?.value||"",subjectId=num(state.v5SubjectId);
+  if(!box||!examId||!subjectId)return [];
+  const proposed=new Map();
+  for(const tr of $$('#v12TermSetupTable tr[data-v12-component]')){
+    const cid=num(tr.dataset.v12Component),fm=Number(tr.querySelector('.v12-term-fm')?.value);if(cid&&Number.isFinite(fm))proposed.set(cid,fm);
+  }
+  try{
+    const conflicts=await v27FindFullMarkConflicts(examId,cls,{subjectIds:[subjectId],proposedFullMarks:proposed});
+    box.innerHTML=v27ConflictHtml(conflicts,"Saved marks above the Full Marks entered here");
+    const badComponents=new Set(conflicts.map(x=>num(x.component_id)));
+    $$('#v12TermSetupTable tr[data-v12-component]').forEach(tr=>{const bad=badComponents.has(num(tr.dataset.v12Component));tr.classList.toggle('v27-component-conflict',bad);const inp=tr.querySelector('.v12-term-fm');if(inp)inp.classList.toggle('v27-fm-conflict-input',bad);});
+    state.v27TermConflicts=conflicts;
+    if(conflicts.length&&toastOnConflict)toast(`${conflicts.length} saved mark(s) are above the entered Full Marks. See the red conflict list.`);
+    return conflicts;
+  }catch(e){console.error(e);box.innerHTML=`<div class="danger">Conflict check failed: ${esc(errMsg(e))}</div>`;return []}
+}
+
 async function v12InjectTermSetupPanel(){
   const split=document.querySelector(".subject-split");if(!split||$("#v12TermSetupPanel"))return;
   const exams=await examOptions();
@@ -1500,6 +1573,7 @@ async function v12InjectTermSetupPanel(){
     </div>
     <div class="info" style="margin-top:10px"><strong>Calculation rule:</strong> Percentage = Obtained Marks ÷ actual Full Marks × 100. Example: 810 / 900 = 90%; 900 / 900 = 100%.</div>
     <div id="v12TermSetupStatus" style="margin-top:10px"></div>
+    <div id="v27TermConflictBox" style="margin-top:10px"></div>
     <div id="v12TermSetupTable" style="margin-top:10px"><div class="empty">Select a subject above.</div></div>`;
   split.insertAdjacentElement("afterend",panel);
   const ex=$("#v12TermExam");if(ex&&!ex.value&&ex.options.length)ex.selectedIndex=0;
@@ -1528,7 +1602,15 @@ async function v12LoadTermSetup(){
     if(!comps.length){host.innerHTML=`<div class="empty">No assessment component is snapshotted for this subject in this examination.</div>`;return;}
     host.innerHTML=`<div class="table-wrap"><table><thead><tr><th>Assessment Component</th><th>Master Default FM</th><th>Term Full Marks</th><th>Pass %</th><th>Component Credit Hour</th><th>Weight %</th></tr></thead><tbody>${comps.map(c=>{const x=map.get(num(c.id));const dis=lock.locked?"disabled":"";return `<tr data-v12-component="${c.id}"><td><strong>${esc(c.code)}</strong><br><small>${esc(c.label||"")}</small></td><td class="center">${num(c.full_marks)}</td><td><input class="v12-term-fm" type="number" step="0.001" min="0.001" value="${num(x.full_marks)}" ${dis}></td><td><input class="v12-term-pass" type="number" step="0.001" min="0" max="100" value="${x.pass_percent??""}" ${dis}></td><td><input class="v12-term-credit" type="number" step="0.001" min="0" value="${x.credit_hour??""}" ${dis}></td><td><input class="v12-term-weight" type="number" step="0.001" min="0" value="${x.weight_percent??""}" ${dis}></td></tr>`}).join("")}</tbody></table></div>`;
     const save=$("#v12SaveTermSetup"),copy=$("#v12CopyPreviousTerm"),defaults=$("#v12UseMasterDefaults");if(save)save.disabled=lock.locked;if(copy)copy.disabled=lock.locked;if(defaults)defaults.disabled=lock.locked;
-  }catch(e){console.error(e);host.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;}
+    $$('#v12TermSetupTable .v12-term-fm').forEach(inp=>inp.oninput=()=>{clearTimeout(v27CheckTermSetupConflicts._t);v27CheckTermSetupConflicts._t=setTimeout(()=>v27CheckTermSetupConflicts(),180);});
+    await v27CheckTermSetupConflicts();
+  }catch(e){
+    console.error(e);
+    if(/Full Marks cannot be lower than an already saved obtained mark/i.test(errMsg(e))){
+      try{const conflicts=await v27FindFullMarkConflicts(examId,cls,{subjectIds:[subjectId]});if(conflicts.length){if(statusHost)statusHost.innerHTML=`<div class="danger"><strong>Full Marks conflict detected.</strong> The software found the exact saved mark(s) causing the block.</div>`;const cbox=$("#v27TermConflictBox");if(cbox)cbox.innerHTML=v27ConflictHtml(conflicts,"These saved marks are blocking this Full Marks setup");host.innerHTML=`<div class="notice">Correct the red saved mark(s) in Marks Entry, then return here and save the Term Full Marks again.</div>`;return;}}catch(diagErr){console.error(diagErr);}
+    }
+    host.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;
+  }
 }
 
 async function v12SaveTermSetup(){
@@ -1546,7 +1628,11 @@ async function v12SaveTermSetup(){
       payload.push({exam_id:examId,component_id,full_marks:fm,pass_percent:pass,credit_hour:credit,weight_percent:weight,updated_at:new Date().toISOString()});
     }
     if(!payload.length)return toast("No term component is available to save.");
+    const proposed=new Map(payload.map(x=>[num(x.component_id),Number(x.full_marks)]));
+    const conflicts=await v27FindFullMarkConflicts(examId,cls,{subjectIds:[num(state.v5SubjectId)],proposedFullMarks:proposed});
+    if(conflicts.length){const box=$("#v27TermConflictBox");if(box)box.innerHTML=v27ConflictHtml(conflicts,"Cannot save: these obtained marks are above the new Full Marks");const badComponents=new Set(conflicts.map(x=>num(x.component_id)));$$('#v12TermSetupTable tr[data-v12-component]').forEach(tr=>{const bad=badComponents.has(num(tr.dataset.v12Component));tr.classList.toggle('v27-component-conflict',bad);const inp=tr.querySelector('.v12-term-fm');if(inp)inp.classList.toggle('v27-fm-conflict-input',bad);});toast(`${conflicts.length} saved mark(s) are above the new Full Marks. See the red conflict list.`);return;}
     const {error}=await sb.from("exam_component_settings").upsert(payload,{onConflict:"exam_id,component_id"});if(error)throw error;
+    const cbox=$("#v27TermConflictBox");if(cbox)cbox.innerHTML="";
     toast("Term-wise Full Marks setup saved. Other examinations are unchanged.");
     await v12LoadTermSetup();
   }catch(e){console.error(e);toast(errMsg(e));}
@@ -1616,10 +1702,17 @@ async function loadSelectedMarksSheets(){
     const compIds=subs.flatMap(s=>(s.components||[]).map(c=>c.id));let marks=[];
     if(compIds.length){const {data,error:e3}=await sb.from("marks").select("student_id,component_id,obtained_mark,status").eq("exam_id",examId).in("student_id",rows.map(x=>x.id)).in("component_id",compIds);if(e3)throw e3;marks=data||[];}
     const mMap=new Map(marks.map(m=>[`${m.student_id}_${m.component_id}`,m]));state.marksContexts={};subs.forEach(s=>{const comps=(s.components||[]).slice().sort((a,b)=>num(a.sort_order)-num(b.sort_order)||num(a.id)-num(b.id));state.marksContexts[num(s.id)]={examId,cls,subjectId:num(s.id),subject:s,components:comps,students:rows};});
+    const conflicts=[];for(const st of rows)for(const sub of subs)for(const c of (sub.components||[])){const m=mMap.get(`${st.id}_${c.id}`);if(v27SavedMarkOverFull(m,c.full_marks))conflicts.push({student_id:st.id,roll_no:st.roll_no,name:st.name,active:true,subject_name:sub.name,component_id:c.id,component_code:c.code,component_label:c.label||c.code,full_marks:num(c.full_marks),obtained_mark:Number(m.obtained_mark)});}
     const groupHeaders=subs.map(s=>{const comps=s.components||[],span=comps.length?1+comps.length*2:1;return `<th class="subject-group-head" colspan="${span}">${esc(s.name)}</th>`;}).join(""),subHeaders=subs.map(_v4SubjectHeaderCells).join("");
-    area.innerHTML=`<div class="marks-v4-statusbar"><div><b>${esc(cls)}</b> • ${rows.length} student(s) • ${subs.length} subject(s) • <b>Term-specific Full Marks</b></div><button class="btn green big" id="saveAllMatrixMarks">SAVE MARKS</button></div><div class="marks-v4-matrix-wrap"><table class="marks-v4-matrix"><thead><tr class="group-row"><th class="fixed-col select-col" rowspan="2"><input id="markAllStudents" type="checkbox" checked></th><th class="fixed-col sn-col" rowspan="2">S.N</th><th class="fixed-col name-col" rowspan="2">Student Name</th><th class="fixed-col reg-col" rowspan="2">IEMIS ID</th><th class="fixed-col symbol-col" rowspan="2">Symbol No.</th>${groupHeaders}</tr><tr class="sub-row">${subHeaders}</tr></thead><tbody>${rows.map((st,ri)=>`<tr data-matrix-row="${ri}"><td class="fixed-col select-col"><input class="mark-student-select" data-row="${ri}" type="checkbox" checked></td><td class="fixed-col sn-col">${ri+1}</td><td class="fixed-col name-col"><strong>${esc(st.name||"")}</strong></td><td class="fixed-col reg-col">${esc(st.registration_no||"")}</td><td class="fixed-col symbol-col"><strong>${esc(st.symbol_no||"")}</strong></td>${subs.map(s=>_v4SubjectBodyCells(s,st,ri,mMap)).join("")}</tr>`).join("")}</tbody></table></div><div class="marks-v4-bottom-actions"><button class="btn green big" onclick="saveAllSelectedMarks()">SAVE MARKS</button></div>`;
+    area.innerHTML=`${v27ConflictHtml(conflicts,"Saved marks above this Term's Full Marks — red cells need correction")}<div class="marks-v4-statusbar"><div><b>${esc(cls)}</b> • ${rows.length} student(s) • ${subs.length} subject(s) • <b>Term-specific Full Marks</b></div><button class="btn green big" id="saveAllMatrixMarks">SAVE MARKS</button></div><div class="marks-v4-matrix-wrap"><table class="marks-v4-matrix"><thead><tr class="group-row"><th class="fixed-col select-col" rowspan="2"><input id="markAllStudents" type="checkbox" checked></th><th class="fixed-col sn-col" rowspan="2">S.N</th><th class="fixed-col name-col" rowspan="2">Student Name</th><th class="fixed-col reg-col" rowspan="2">IEMIS ID</th><th class="fixed-col symbol-col" rowspan="2">Symbol No.</th>${groupHeaders}</tr><tr class="sub-row">${subHeaders}</tr></thead><tbody>${rows.map((st,ri)=>`<tr data-matrix-row="${ri}" class="${v27StudentHasConflict(st,subs,mMap)?"v27-student-conflict-row":""}"><td class="fixed-col select-col"><input class="mark-student-select" data-row="${ri}" type="checkbox" checked></td><td class="fixed-col sn-col">${ri+1}</td><td class="fixed-col name-col ${v27StudentHasConflict(st,subs,mMap)?"v27-student-conflict":""}"><strong>${esc(st.name||"")}${v27StudentHasConflict(st,subs,mMap)?' <span class="v27-warning">⚠</span>':""}</strong></td><td class="fixed-col reg-col">${esc(st.registration_no||"")}</td><td class="fixed-col symbol-col"><strong>${esc(st.symbol_no||"")}</strong></td>${subs.map(s=>_v4SubjectBodyCells(s,st,ri,mMap)).join("")}</tr>`).join("")}</tbody></table></div><div class="marks-v4-bottom-actions"><button class="btn green big" onclick="saveAllSelectedMarks()">SAVE MARKS</button></div>`;
     $("#markAllStudents").onchange=e=>_v4SetAllStudents(e.currentTarget.checked);$$('.mark-student-select').forEach(cb=>cb.onchange=_v4UpdateAllStudentsCheckbox);$$('.subject-absent').forEach(cb=>cb.onchange=()=>_v4SubjectAbsentToggle(num(cb.dataset.subject),num(cb.dataset.row),cb.checked));$$('.mark-input').forEach(el=>{el.oninput=()=>{const abs=document.querySelector(`.subject-absent[data-subject="${el.dataset.subject}"][data-row="${el.dataset.row}"]`);if(abs?.checked&&!['ABS','AB','A','ABSENT'].includes(el.value.trim().toUpperCase())){abs.checked=false;$$(`.mark-input[data-subject="${el.dataset.subject}"][data-row="${el.dataset.row}"]`).forEach(x=>x.disabled=false);}_markCellValidate(el);};el.onpaste=_v4HandleMarksPaste;});$("#saveAllMatrixMarks").onclick=saveAllSelectedMarks;
-  }catch(e){console.error(e);area.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;}
+  }catch(e){
+    console.error(e);
+    if(/Full Marks cannot be lower than an already saved obtained mark/i.test(errMsg(e))){
+      try{const conflicts=await v27FindFullMarkConflicts(examId,cls,{subjectIds});if(conflicts.length){area.innerHTML=`${v27ConflictHtml(conflicts,"These saved marks are blocking this Term's Full Marks setup")}<div class="notice"><strong>What to do:</strong> Note the red student/mark above. Increase the Term Full Marks or correct that student's saved obtained mark, then reload Marks Entry.</div>`;return;}}catch(diagErr){console.error(diagErr);}
+    }
+    area.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;
+  }
 }
 async function loadMarksSheet(){return loadSelectedMarksSheets();}
 
@@ -2188,4 +2281,4 @@ gradeSheetHtml=function(result,exam,cfg,issueDate){
 
 Object.assign(window,{refreshResults,unpublishResult,gradeSheetHtml,v18RomanGrade,v18GradeRemark});
 
-/* Build: v26 Roll Order Fix — numeric/natural student roll ordering across lists, marks, results and exports. */
+/* Build: v27 Full Marks Conflict + v26 Roll Order Fix. */
