@@ -4473,3 +4473,105 @@ window.v17RenderSavedReceiptToWindow=v17RenderSavedReceiptToWindow;
   window.drawStudentReport=drawStudentReport;
 })();
 /* ================== END V19.10 FINAL PRINT POLISH ================== */
+
+
+/* ==================== V19.11 QUICK RECEIPT + EXPENSE RELIABILITY PATCH ====================
+   - Marks Entry integration is intentionally untouched.
+   - Always stores a readable title/head even when a master head is selected.
+   - Requires either a master head or a custom title/head.
+   - Keeps online RPC save, active-bank validation, and existing View/Edit/Print/Delete actions.
+=========================================================================================== */
+(function(){
+  function v1911SelectedLabel(select){
+    const opt=select?.options?.[select.selectedIndex];
+    return String(opt?.textContent||'').trim();
+  }
+  function v1911RpcRow(data){return Array.isArray(data)?(data[0]||{}):(data||{});}
+
+  renderQuickReceipt=function(){
+    if(!isAccountant())return unauthorized();
+    const heads=(db.incomeHeads||[]).filter(x=>x.active!==false);
+    $('#content').innerHTML=`<div class="two-col"><div class="section premium-section"><div class="section-title"><div><h3>Quick Receipt</h3><p>Use for rent, donation, extra income and other non-student receipts.</p></div><div class="next-number"><small>Receipt No.</small><b>Auto Generated</b></div></div><form id="quickForm" class="form-grid"><div><label>Nepali Date</label><input name="date" value="${esc(workingDate())}" placeholder="2083-06-01" required></div><div><label>Payment Mode</label><select name="mode"><option>Cash</option><option>Bank</option></select></div><div><label>Income Head</label><select name="incomeHeadId"><option value="">Custom / Other</option>${heads.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('')}</select></div><div><label>Custom Title</label><input name="title" placeholder="Required only for Custom / Other"></div><div><label>Amount</label><input name="amount" type="number" min="0.01" step="0.01" required></div><div><label>Received From</label><input name="receivedFrom" placeholder="Optional"></div><div class="full"><label>Bank Account</label><select name="bankId" disabled>${bankOptions()}</select></div><div class="full"><label>Remarks</label><textarea name="remarks"></textarea></div><div class="full info" style="margin:0">Choose an Income Head, or enter a Custom Title. For Bank mode, select the bank account.</div><div class="full form-actions"><button class="btn primary big" type="submit">Save & Print Quick Receipt</button></div></form></div><div class="section premium-section"><div class="section-title"><div><h3>Quick Receipt Register</h3><p>Saved online and included in school income reports.</p></div><button class="btn green" id="quickExport">Export Excel</button></div><div id="quickList"></div></div></div>`;
+    const f=$('#quickForm'),mode=f.elements.mode,bank=f.elements.bankId,head=f.elements.incomeHeadId,title=f.elements.title;
+    mode.onchange=()=>v18ToggleBank(mode,bank);
+    head.onchange=()=>{title.placeholder=head.value?'Optional note / alternate title':'Required for Custom / Other';};
+    f.onsubmit=saveQuickReceipt;
+    $('#quickExport').onclick=exportQuickReceipts;
+    drawQuickList();
+  };
+  window.renderQuickReceipt=renderQuickReceipt;
+
+  saveQuickReceipt=async function(e){
+    e.preventDefault();
+    const f=e.target,fd=new FormData(f),date=String(fd.get('date')||''),mode=String(fd.get('mode')||'Cash'),amount=num(fd.get('amount'));
+    const headId=String(fd.get('incomeHeadId')||''),customTitle=String(fd.get('title')||'').trim();
+    const headName=headId?v1911SelectedLabel(f.elements.incomeHeadId):'';
+    const incomeTitle=customTitle||headName;
+    if(!npDateValid(date))return toast('Use Nepali date YYYY-MM-DD.');
+    if(amount<=0)return toast('Enter an amount.');
+    if(!incomeTitle)return toast('Select an Income Head or enter a Custom Title.');
+    if(mode==='Bank'&&!fd.get('bankId'))return toast('Select Bank Account.');
+    const btn=f.querySelector('button[type="submit"]'),old=btn.textContent;btn.disabled=true;btn.textContent='Saving…';
+    try{
+      const {data,error}=await sb.rpc('create_quick_receipt_atomic',{
+        p_nepali_date:date,p_academic_year:yearOfDate(date),p_amount:amount,p_payment_mode:mode,
+        p_income_head_id:headId||null,p_income_title:incomeTitle,p_received_from:fd.get('receivedFrom')||null,
+        p_bank_id:mode==='Bank'?(fd.get('bankId')||null):null,p_remarks:fd.get('remarks')||null,p_issued_by:db.settings.issuedBy||null
+      });
+      if(error)throw error;
+      await v18LoadOperations();
+      const saved=v1911RpcRow(data);
+      const q=(db.quickReceipts||[]).find(x=>x.id===saved.quick_receipt_id)
+        ||(db.quickReceipts||[]).find(x=>x.receiptNo===saved.receipt_no)
+        ||(db.quickReceipts||[]).find(x=>x.date===date&&num(x.amount)===amount&&String(x.title||'')===incomeTitle);
+      renderQuickReceipt();
+      if(q)showQuickReceipt(q.id,true);
+      toast('Online Quick Receipt saved.');
+    }catch(err){
+      console.error('Quick Receipt save error',err);
+      const m=String(err?.message||'Unknown error');
+      toast('Quick Receipt NOT saved: '+m);
+    }finally{btn.disabled=false;btn.textContent=old;}
+  };
+  window.saveQuickReceipt=saveQuickReceipt;
+
+  renderExpenses=function(){
+    if(!isAccountant())return unauthorized();
+    const heads=(db.expenseHeads||[]).filter(x=>x.active!==false);
+    $('#content').innerHTML=`<div class="two-col"><div class="section premium-section"><div class="section-title"><div><h3>Expense Entry</h3><p>Record school expenses with Cash or Bank payment.</p></div><div class="next-number"><small>Voucher No.</small><b>Auto Generated</b></div></div><form id="expForm" class="form-grid"><div><label>Nepali Date</label><input name="date" value="${esc(workingDate())}" required></div><div><label>Mode</label><select name="mode"><option>Cash</option><option>Bank</option></select></div><div><label>Expense Head</label><select name="expenseHeadId"><option value="">Custom / Other</option>${heads.map(h=>`<option value="${h.id}">${esc(h.name)}</option>`).join('')}</select></div><div><label>Custom Head</label><input name="head" placeholder="Required only for Custom / Other"></div><div><label>Amount</label><input name="amount" type="number" min="0.01" step="0.01" required></div><div><label>Paid To</label><input name="paidTo" placeholder="Person / Supplier"></div><div class="full"><label>Bank Account</label><select name="bankId" disabled>${bankOptions()}</select></div><div class="full"><label>Remarks</label><textarea name="remarks"></textarea></div><div class="full info" style="margin:0">Choose an Expense Head, or enter a Custom Head. Bank mode requires a bank account.</div><div class="full form-actions"><button class="btn primary big" type="submit">Save Expense</button></div></form></div><div class="section premium-section"><div class="section-title"><div><h3>Expense Register</h3><p>View, edit, print or delete saved expenses.</p></div><button class="btn green" id="expExport">Export Excel</button></div><div id="expHost"></div></div></div>`;
+    const f=$('#expForm'),mode=f.elements.mode,bank=f.elements.bankId,head=f.elements.expenseHeadId,custom=f.elements.head;
+    mode.onchange=()=>v18ToggleBank(mode,bank);
+    head.onchange=()=>{custom.placeholder=head.value?'Optional note / alternate head':'Required for Custom / Other';};
+    f.onsubmit=v18SaveExpense;
+    $('#expExport').onclick=()=>exportXLS('Expenses.xls',['Voucher No','Date','Head','Paid To','Mode','Bank','Amount','Remarks'],(db.expenses||[]).map(x=>[x.voucherNo,x.date,x.head,x.paidTo,x.mode,x.mode==='Bank'?bankLabel(x.bankId):'',x.amount,x.remarks]),'Expense Register');
+    v18DrawExpenses();
+  };
+  window.renderExpenses=renderExpenses;
+
+  v18SaveExpense=async function(e){
+    e.preventDefault();
+    const f=e.target,fd=new FormData(f),date=String(fd.get('date')||''),mode=String(fd.get('mode')||'Cash'),amount=num(fd.get('amount'));
+    const headId=String(fd.get('expenseHeadId')||''),customHead=String(fd.get('head')||'').trim();
+    const masterHead=headId?v1911SelectedLabel(f.elements.expenseHeadId):'';
+    const expenseHead=customHead||masterHead;
+    if(!npDateValid(date))return toast('Use Nepali date YYYY-MM-DD.');
+    if(amount<=0)return toast('Enter an amount.');
+    if(!expenseHead)return toast('Select an Expense Head or enter a Custom Head.');
+    if(mode==='Bank'&&!fd.get('bankId'))return toast('Select Bank Account.');
+    const btn=f.querySelector('button[type="submit"]'),old=btn.textContent;btn.disabled=true;btn.textContent='Saving…';
+    try{
+      const {error}=await sb.rpc('create_expense_atomic',{
+        p_nepali_date:date,p_academic_year:yearOfDate(date),p_amount:amount,p_payment_mode:mode,
+        p_expense_head_id:headId||null,p_expense_head:expenseHead,p_paid_to:fd.get('paidTo')||null,
+        p_bank_id:mode==='Bank'?(fd.get('bankId')||null):null,p_remarks:fd.get('remarks')||null,p_entered_by:db.settings.issuedBy||null
+      });
+      if(error)throw error;
+      await v18LoadOperations();renderExpenses();toast('Online Expense saved.');
+    }catch(err){
+      console.error('Expense save error',err);
+      toast('Expense NOT saved: '+String(err?.message||'Unknown error'));
+    }finally{btn.disabled=false;btn.textContent=old;}
+  };
+  window.v18SaveExpense=v18SaveExpense;
+})();
+/* ================== END V19.11 QUICK/EXPENSE PATCH ================== */

@@ -355,3 +355,8 @@ body{letter-spacing:.001em}
 
 /* Marks Entry integration: direct link only; no Accounts/Marks data connection. */
 .marks-entry-link{display:flex;align-items:center;text-decoration:none;color:inherit}
+
+
+/* V19.11: standalone Letter Maker launcher; Marks Entry remains untouched. */
+.letter-maker-link{color:#0b5d91!important;font-weight:800!important}
+.letter-maker-link:hover{background:#e8f5ff!important}
