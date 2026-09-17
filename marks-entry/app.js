@@ -1463,6 +1463,7 @@ async function v12EnsureExamSettings(examId,cls){
   if(error){
     const msg=String(error.message||"");
     if(/ensure_exam_component_settings|schema cache|function/i.test(msg))throw new Error("Term-wise Full Marks SQL is not installed. Run MARKS_WORKFLOW_V15_SQL.sql once in the Marks Supabase project.");
+    if(/Full Marks cannot be lower than an already saved obtained mark/i.test(msg))throw new Error("Legacy Full Marks snapshot conflict. Run MARKS_V31_FULL_MARKS_ROOT_FIX.sql once in the Marks Supabase project, then reload this page.");
     throw error;
   }
   return lock;
@@ -1506,39 +1507,59 @@ function v27StudentHasConflict(student,subjects,mMap){
 
 function v27ConflictHtml(conflicts,title="Full Marks Conflict Found"){
   if(!(conflicts||[]).length)return "";
-  return `<div class="v27-conflict-box"><div class="v27-conflict-title">⚠ ${esc(title)}</div><div class="v27-conflict-note">The red saved mark is higher than the Full Marks for this examination/component. Correct that obtained mark or increase the Full Marks before saving the setup.</div><div class="table-wrap"><table class="v27-conflict-table"><thead><tr><th>Roll</th><th>Student</th><th>Subject</th><th>Component</th><th>Full Marks</th><th>Saved Obtained Mark</th></tr></thead><tbody>${conflicts.map(x=>`<tr><td>${esc(x.roll_no||"")}</td><td class="v27-conflict-student"><strong>${esc(x.name||"")}</strong>${x.active===false?` <small>(Inactive)</small>`:""}</td><td>${esc(x.subject_name||"")}</td><td>${esc(x.component_label||x.component_code||"")}</td><td class="center">${esc(x.full_marks)}</td><td class="center v27-over-mark"><strong>${esc(x.obtained_mark)}</strong></td></tr>`).join("")}</tbody></table></div></div>`;
+  const hasInactiveSubject=(conflicts||[]).some(x=>x.subject_active===false);
+  return `<div class="v27-conflict-box"><div class="v27-conflict-title">⚠ ${esc(title)}</div><div class="v27-conflict-note">The red saved mark is higher than the Full Marks for this examination/component. v30 checks every matching saved mark, including inactive/moved students and inactive/old subjects. ${hasInactiveSubject?'<strong>At least one blocker belongs to an inactive/old subject record.</strong> ':''}Use the IDs below to trace the exact database row; you do not need to temporarily raise Full Marks.</div><div class="table-wrap"><table class="v27-conflict-table"><thead><tr><th>Roll</th><th>Student</th><th>Student Record</th><th>Subject</th><th>Subject Status</th><th>Component</th><th>Full Marks</th><th>Saved Obtained Mark</th><th>Trace IDs</th></tr></thead><tbody>${conflicts.map(x=>`<tr><td>${esc(x.roll_no||"")}</td><td class="v27-conflict-student"><strong>${esc(x.name||"")}</strong>${x.active===false?` <small>(Inactive Student)</small>`:""}</td><td>${esc(x.class_name||"Unknown/old record")}</td><td>${esc(x.subject_name||"")}</td><td>${x.subject_active===false?'<strong class="v30-old-subject">INACTIVE / OLD</strong>':'Active'}</td><td>${esc(x.component_label||x.component_code||"")}</td><td class="center">${esc(x.full_marks)}</td><td class="center v27-over-mark"><strong>${esc(x.obtained_mark)}</strong></td><td class="v30-trace-ids"><small>Mark #${esc(x.mark_id??"")}<br>Student #${esc(x.student_id??"")}<br>Subject #${esc(x.subject_id??"")}<br>Component #${esc(x.component_id??"")}</small></td></tr>`).join("")}</tbody></table></div></div>`;
 }
 
 async function v27FindFullMarkConflicts(examId,cls,{subjectIds=null,proposedFullMarks=null}={}){
-  let sreq=sb.from("subjects").select("id,name,sort_order,components(id,code,label,full_marks,sort_order)").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("sort_order").order("id");
+  // v30 deep trace: mirror the database ensure/guard scope exactly.
+  // IMPORTANT: do NOT filter subjects by active=true here. The SQL ensure function scans
+  // every subject in the examination academic year + class, so an inactive/old subject
+  // component can be the hidden row that blocks Full Marks setup.
+  const {data:exam,error:ee}=await sb.from("exams").select("id,academic_year_id,name").eq("id",examId).maybeSingle();
+  if(ee)throw ee;
+  const examYear=num(exam?.academic_year_id)||num(state.yearId);
+  let sreq=sb.from("subjects").select("id,name,sort_order,active,class_name,academic_year_id,components(id,code,label,full_marks,sort_order)")
+    .eq("academic_year_id",examYear).eq("class_name",cls).order("sort_order").order("id");
   if(Array.isArray(subjectIds)&&subjectIds.length)sreq=sreq.in("id",subjectIds.map(num));
-  const [{data:students,error:ste},{data:subjects,error:sue}]=await Promise.all([
-    sb.from("students").select("id,roll_no,name,active").eq("academic_year_id",state.yearId).eq("class_name",cls),
-    sreq
-  ]);
-  if(ste)throw ste;if(sue)throw sue;
-  const sts=students||[],subs=subjects||[];
-  const studentIds=sts.map(x=>num(x.id)).filter(Boolean),compIds=subs.flatMap(s=>(s.components||[]).map(c=>num(c.id))).filter(Boolean);
-  if(!studentIds.length||!compIds.length)return [];
+  const {data:subjects,error:sue}=await sreq;if(sue)throw sue;
+  const subs=subjects||[],compIds=subs.flatMap(s=>(s.components||[]).map(c=>num(c.id))).filter(Boolean);
+  if(!compIds.length)return [];
+
   const [{data:settings,error:se},{data:marks,error:me}]=await Promise.all([
     sb.from("exam_component_settings").select("component_id,full_marks").eq("exam_id",examId).in("component_id",compIds),
-    sb.from("marks").select("student_id,component_id,obtained_mark,status").eq("exam_id",examId).in("student_id",studentIds).in("component_id",compIds)
+    sb.from("marks").select("id,student_id,component_id,obtained_mark,status,updated_at").eq("exam_id",examId).in("component_id",compIds)
   ]);
   if(se)throw se;if(me)throw me;
-  const stMap=new Map(sts.map(x=>[num(x.id),x])),settingMap=new Map((settings||[]).map(x=>[num(x.component_id),Number(x.full_marks)]));
+
+  const settingMap=new Map((settings||[]).map(x=>[num(x.component_id),Number(x.full_marks)]));
   const compMap=new Map();
-  for(const sub of subs||[])for(const c of sub.components||[]){
+  for(const sub of subs)for(const c of sub.components||[]){
     const cid=num(c.id);
     const proposed=proposedFullMarks instanceof Map&&proposedFullMarks.has(cid)?Number(proposedFullMarks.get(cid)):null;
     const fm=Number.isFinite(proposed)?proposed:(settingMap.has(cid)?Number(settingMap.get(cid)):Number(c.full_marks));
-    compMap.set(cid,{component_id:cid,subject_id:num(sub.id),subject_name:sub.name,component_code:c.code,component_label:c.label||c.code,full_marks:fm,subject_sort:num(sub.sort_order),component_sort:num(c.sort_order)});
+    compMap.set(cid,{component_id:cid,subject_id:num(sub.id),subject_name:sub.name,subject_active:sub.active!==false,component_code:c.code,component_label:c.label||c.code,full_marks:fm,subject_sort:num(sub.sort_order),component_sort:num(c.sort_order)});
   }
+
+  const candidateMarks=(marks||[]).filter(m=>{
+    const c=compMap.get(num(m.component_id));return c&&v27SavedMarkOverFull(m,c.full_marks);
+  });
+  if(!candidateMarks.length)return [];
+
+  const studentIds=[...new Set(candidateMarks.map(m=>num(m.student_id)).filter(Boolean))];
+  let students=[];
+  if(studentIds.length){
+    const {data,error}=await sb.from("students").select("id,roll_no,name,active,class_name,academic_year_id,registration_no,symbol_no").in("id",studentIds);
+    if(error)throw error;students=data||[];
+  }
+  const stMap=new Map(students.map(x=>[num(x.id),x]));
   const out=[];
-  for(const m of marks||[]){
-    const c=compMap.get(num(m.component_id)),st=stMap.get(num(m.student_id));if(!c||!st)continue;
-    if(v27SavedMarkOverFull(m,c.full_marks))out.push({...c,student_id:num(st.id),roll_no:st.roll_no,name:st.name,active:st.active,obtained_mark:Number(m.obtained_mark)});
+  for(const m of candidateMarks){
+    const c=compMap.get(num(m.component_id));if(!c)continue;
+    const st=stMap.get(num(m.student_id));
+    out.push({...c,mark_id:num(m.id),mark_updated_at:m.updated_at||null,student_id:num(m.student_id),roll_no:st?.roll_no??"",name:st?.name||`Student ID ${num(m.student_id)}`,active:st?.active,class_name:st?.class_name||"Unknown/old record",academic_year_id:st?.academic_year_id,registration_no:st?.registration_no||"",symbol_no:st?.symbol_no||"",obtained_mark:Number(m.obtained_mark)});
   }
-  out.sort((a,b)=>{const ar=Number(a.roll_no),br=Number(b.roll_no),af=Number.isFinite(ar),bf=Number.isFinite(br);if(af&&bf&&ar!==br)return ar-br;if(af!==bf)return af?-1:1;return String(a.roll_no||"").localeCompare(String(b.roll_no||""),undefined,{numeric:true})||a.subject_sort-b.subject_sort||a.component_sort-b.component_sort||String(a.name||"").localeCompare(String(b.name||""));});
+  out.sort((a,b)=>{const aa=a.subject_active===false?0:1,ba=b.subject_active===false?0:1;if(aa!==ba)return aa-ba;const ar=Number(a.roll_no),br=Number(b.roll_no),af=Number.isFinite(ar),bf=Number.isFinite(br);if(af&&bf&&ar!==br)return ar-br;if(af!==bf)return af?-1:1;return String(a.roll_no||"").localeCompare(String(b.roll_no||""),undefined,{numeric:true})||a.subject_sort-b.subject_sort||a.component_sort-b.component_sort||String(a.name||"").localeCompare(String(b.name||""));});
   return out;
 }
 
@@ -1607,7 +1628,7 @@ async function v12LoadTermSetup(){
   }catch(e){
     console.error(e);
     if(/Full Marks cannot be lower than an already saved obtained mark/i.test(errMsg(e))){
-      try{const conflicts=await v27FindFullMarkConflicts(examId,cls,{subjectIds:[subjectId]});if(conflicts.length){if(statusHost)statusHost.innerHTML=`<div class="danger"><strong>Full Marks conflict detected.</strong> The software found the exact saved mark(s) causing the block.</div>`;const cbox=$("#v27TermConflictBox");if(cbox)cbox.innerHTML=v27ConflictHtml(conflicts,"These saved marks are blocking this Full Marks setup");host.innerHTML=`<div class="notice">Correct the red saved mark(s) in Marks Entry, then return here and save the Term Full Marks again.</div>`;return;}}catch(diagErr){console.error(diagErr);}
+      try{const conflicts=await v27FindFullMarkConflicts(examId,cls);if(conflicts.length){if(statusHost)statusHost.innerHTML=`<div class="danger"><strong>Full Marks conflict detected.</strong> The software found the exact saved mark(s) causing the block.</div>`;const cbox=$("#v27TermConflictBox");if(cbox)cbox.innerHTML=v27ConflictHtml(conflicts,"These saved marks are blocking this Full Marks setup");host.innerHTML=`<div class="notice">Correct the red saved mark(s) in Marks Entry, then return here and save the Term Full Marks again.</div>`;return;}}catch(diagErr){console.error(diagErr);}
     }
     host.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;
   }
@@ -1709,7 +1730,11 @@ async function loadSelectedMarksSheets(){
   }catch(e){
     console.error(e);
     if(/Full Marks cannot be lower than an already saved obtained mark/i.test(errMsg(e))){
-      try{const conflicts=await v27FindFullMarkConflicts(examId,cls,{subjectIds});if(conflicts.length){area.innerHTML=`${v27ConflictHtml(conflicts,"These saved marks are blocking this Term's Full Marks setup")}<div class="notice"><strong>What to do:</strong> Note the red student/mark above. Increase the Term Full Marks or correct that student's saved obtained mark, then reload Marks Entry.</div>`;return;}}catch(diagErr){console.error(diagErr);}
+      try{const conflicts=await v27FindFullMarkConflicts(examId,cls);if(conflicts.length){area.innerHTML=`${v27ConflictHtml(conflicts,"These saved marks are blocking this Term's Full Marks setup")}<div class="notice"><strong>What to do:</strong> Note the red student/mark above. Increase the Term Full Marks or correct that student's saved obtained mark, then reload Marks Entry.</div>`;return;}}catch(diagErr){console.error(diagErr);}
+    }
+    if(/Full Marks cannot be lower than an already saved obtained mark/i.test(errMsg(e))){
+      area.innerHTML=`<div class="danger"><strong>Full Marks conflict detected, but the student row could not be resolved automatically.</strong><br>The conflict is inside this examination and one of the selected subject components. v30 could not resolve the row in the normal table. Use the Deep Conflict Trace shown above (Mark ID / Student ID / Subject ID / Component ID) to correct the exact saved record; do not temporarily raise Full Marks.</div>`;
+      return;
     }
     area.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;
   }
@@ -2281,4 +2306,176 @@ gradeSheetHtml=function(result,exam,cfg,issueDate){
 
 Object.assign(window,{refreshResults,unpublishResult,gradeSheetHtml,v18RomanGrade,v18GradeRemark});
 
-/* Build: v27 Full Marks Conflict + v26 Roll Order Fix. */
+/* Build: v29 Global Full Marks Conflict Finder + v28 Result Diagnostics + v26 Roll Order Fix. */
+
+/* ============================================================
+   v28 — RESULT PROCESSING FULL-MARKS CONFLICT DIAGNOSTICS
+   Preflights saved OM vs effective Term Full Marks before the
+   result engine/RPC runs, so the exact student is visible.
+   ============================================================ */
+function v28RenderResultFullMarkConflicts(conflicts,examId,cls){
+  const area=$("#resultsArea"),status=$("#resultsStatusHost");
+  const examText=$("#resExam option:checked")?.textContent||"Selected Examination";
+  state.resultContext=null;
+  if(status)status.innerHTML=`<div class="result-status-card v28-result-conflict-status"><span class="result-status-badge" style="background:#FFE5E2;color:#A61F1F">CONFLICT</span><span class="result-status-text"><strong>${conflicts.length} saved mark(s)</strong> are higher than the Full Marks for ${esc(examText)} • ${esc(cls)}. Result calculation is paused until these marks are corrected.</span></div>`;
+  if(area)area.innerHTML=`${v27ConflictHtml(conflicts,"Result Processing blocked — these saved marks are above Full Marks")}<div class="notice"><strong>How to fix:</strong> Open <b>Marks Entry</b>, choose <b>${esc(examText)}</b> and <b>${esc(cls)}</b>, then correct the red student's obtained mark or increase that component's Term Full Marks. After saving, return here and click <b>Calculate / Refresh</b>.</div>`;
+  const f=$("#resFinalizeBtn"),p=$("#resPublishBtn");if(f)f.disabled=true;if(p)p.disabled=true;
+}
+
+const v28RefreshResultsBase=refreshResults;
+refreshResults=async function(){
+  const examId=num($("#resExam")?.value),cls=$("#resClass")?.value||"";if(!examId||!cls)return;
+  if($("#resultsArea"))$("#resultsArea").innerHTML=`<div class="empty">Checking Full Marks and saved marks…</div>`;
+  try{
+    const conflicts=await v27FindFullMarkConflicts(examId,cls);
+    if(conflicts.length){v28RenderResultFullMarkConflicts(conflicts,examId,cls);return;}
+    await v28RefreshResultsBase();
+  }catch(e){
+    console.error(e);
+    if(/Full Marks cannot be lower than an already saved obtained mark/i.test(errMsg(e))){
+      try{
+        const conflicts=await v27FindFullMarkConflicts(examId,cls);
+        if(conflicts.length){v28RenderResultFullMarkConflicts(conflicts,examId,cls);return;}
+      }catch(diagErr){console.error(diagErr);}
+      const area=$("#resultsArea"),status=$("#resultsStatusHost");
+      if(status)status.innerHTML=`<div class="result-status-card v28-result-conflict-status"><span class="result-status-badge" style="background:#FFE5E2;color:#A61F1F">CONFLICT</span><span class="result-status-text">A saved mark is higher than its Term Full Marks.</span></div>`;
+      if(area)area.innerHTML=`<div class="danger"><strong>Full Marks conflict detected, but the old student row could not be resolved automatically.</strong><br>Use the Deep Conflict Trace for ${esc(cls)} to identify the exact Mark ID / Student ID / Subject ID / Component ID. Correct that saved record; do not temporarily raise Full Marks.</div>`;
+      return;
+    }
+    throw e;
+  }
+};
+window.refreshResults=refreshResults;
+
+
+/* Build: v29 — conflict diagnostics now scan all saved marks for selected exam/components, including inactive/moved/old student records. */
+
+
+/* Build: v31 — Full Marks root fix companion: backend ensure ignores inactive subjects and safely bootstraps missing term snapshots. */
+
+/* ============================================================
+   v32.2 FINAL — SELECTED CLASS EXCEL EXPORTS
+   ------------------------------------------------------------
+   Result Processing now exports ONLY the currently selected
+   Examination + Class.
+
+   1) Export Grade Details:
+      Subject GP / Credit / WGP / Grade + Total Credit / WGP / GPA.
+   2) Export Marks Details:
+      Raw saved obtained marks for every subject/component.
+   ============================================================ */
+
+function v322Fmt(v,decimals=2){
+  if(v===null||v===undefined||v==="")return "";
+  const n=Number(v);if(!Number.isFinite(n))return v;
+  const p=10**decimals;return Math.round((n+Number.EPSILON)*p)/p;
+}
+function v322MarkCell(component){
+  const st=String(component?.status||"MISSING").toUpperCase();
+  if(st==="ABS")return "ABS";
+  if(st==="MISSING")return "";
+  return component?.obtained_mark==null?"":v322Fmt(component.obtained_mark,3);
+}
+function v322Widths(headers){
+  return headers.map((h,i)=>{
+    const t=String(h||"");
+    if(i===1)return {wch:28};
+    if(/student name/i.test(t))return {wch:28};
+    if(/iemis|symbol/i.test(t))return {wch:16};
+    return {wch:Math.max(11,Math.min(24,t.length+2))};
+  });
+}
+function v322SaveSheet(sheetName,title,headers,dataRows,filename){
+  const rows=[[title],[],headers,...dataRows];
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"]=v322Widths(headers);
+  ws["!freeze"]={xSplit:0,ySplit:3};
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,sheetName.slice(0,31));
+  XLSX.writeFile(wb,filename,{compression:true});
+}
+
+async function v322ExportSelectedClassGradeDetails(){
+  const c=state.resultContext;
+  if(!c)return toast("Calculate / Refresh the selected examination and class first.");
+  const examId=num($("#resExam")?.value),cls=$("#resClass")?.value||"";
+  if(!examId||!cls)return toast("Select examination and class first.");
+  if(num(c.examId)!==examId||c.cls!==cls){await refreshResults();return v322ExportSelectedClassGradeDetails();}
+  if(!c.results?.length)return toast(`No students found in ${cls}.`);
+
+  const subjects=await v12EffectiveSubjects(examId,cls,null);
+  const headers=["Roll No","Student Name","Symbol No","IEMIS ID"];
+  for(const s of subjects||[])headers.push(`${s.name} GP`,`${s.name} Credit`,`${s.name} WGP`,`${s.name} Grade`);
+  headers.push("Total Credit","Total WGP","GPA","Status");
+
+  const rows=[];
+  for(const r of c.results){
+    const byId=new Map((r.subjects||[]).map(s=>[num(s.id),s]));
+    const row=[r.student.roll_no||"",r.student.name||"",r.student.symbol_no||"",r.student.registration_no||""];
+    for(const s of subjects||[]){
+      const x=byId.get(num(s.id));
+      if(!x)row.push("","","","");
+      else row.push(x.final_grade_point==null?"":v322Fmt(x.final_grade_point,1),v322Fmt(x.credit_hour,2),x.wgp==null?"":v322Fmt(x.wgp,2),x.final_grade||"");
+    }
+    row.push(v322Fmt(r.total_credit,2),v322Fmt(r.total_wgp,2),r.gpa==null?"":v322Fmt(r.gpa,2),r.status||"");
+    rows.push(row);
+  }
+  const year=currentYear()?.name||"";
+  v322SaveSheet("Grade Details",`${year} | ${c.exam.name} | ${cls} | GRADE DETAILS`,headers,rows,`Grade_Details_${_safeFilename(cls)}_${_safeFilename(c.exam.name)}.xlsx`);
+  toast(`${cls} Grade Details Excel exported.`);
+}
+
+async function v322ExportSelectedClassMarksDetails(){
+  const c=state.resultContext;
+  if(!c)return toast("Calculate / Refresh the selected examination and class first.");
+  const examId=num($("#resExam")?.value),cls=$("#resClass")?.value||"";
+  if(!examId||!cls)return toast("Select examination and class first.");
+  if(num(c.examId)!==examId||c.cls!==cls){await refreshResults();return v322ExportSelectedClassMarksDetails();}
+
+  const [subjects,studentsRes,marksRes]=await Promise.all([
+    v12EffectiveSubjects(examId,cls,null),
+    sb.from("students").select("id,roll_no,name,symbol_no,registration_no").eq("academic_year_id",state.yearId).eq("class_name",cls).eq("active",true).order("roll_no").order("name"),
+    sb.from("marks").select("student_id,component_id,obtained_mark,status").eq("exam_id",examId)
+  ]);
+  if(studentsRes.error)throw studentsRes.error;if(marksRes.error)throw marksRes.error;
+  const students=_studentRowsSorted(studentsRes.data||[]);if(!students.length)return toast(`No students found in ${cls}.`);
+  const comps=[];
+  for(const s of subjects||[])for(const cp of (s.components||[]).slice().sort((a,b)=>num(a.sort_order)-num(b.sort_order)||num(a.id)-num(b.id)))comps.push({...cp,subject_name:s.name});
+  if(!comps.length)return toast(`No subject/component setup found in ${cls}.`);
+  const mm=new Map((marksRes.data||[]).map(m=>[`${m.student_id}_${m.component_id}`,m]));
+  const headers=["Roll No","Student Name","Symbol No","IEMIS ID",...comps.map(cp=>`${cp.subject_name} ${cp.code} (FM ${v322Fmt(cp.full_marks,3)})`)];
+  const rows=students.map(st=>{
+    const row=[st.roll_no||"",st.name||"",st.symbol_no||"",st.registration_no||""];
+    for(const cp of comps){const m=mm.get(`${st.id}_${cp.id}`);row.push(!m?"":String(m.status||"MARK").toUpperCase()==="ABS"?"ABS":m.obtained_mark??"");}
+    return row;
+  });
+  const year=currentYear()?.name||"";
+  v322SaveSheet("Marks Details",`${year} | ${c.exam.name} | ${cls} | MARKS DETAILS`,headers,rows,`Marks_Details_${_safeFilename(cls)}_${_safeFilename(c.exam.name)}.xlsx`);
+  toast(`${cls} Marks Details Excel exported.`);
+}
+
+const v322RefreshResultsBase=refreshResults;
+refreshResults=async function(){
+  await v322RefreshResultsBase();
+  const host=document.querySelector(".result-status-actions");
+  if(!host)return;
+  const old=host.querySelector('button[onclick="v5ExportResultsExcel()"]');
+  if(old)old.remove();
+  if(!document.getElementById("v322GradeDetailsBtn")){
+    const grade=document.createElement("button");grade.className="btn";grade.id="v322GradeDetailsBtn";grade.textContent="Export Grade Details";grade.onclick=v322ExportSelectedClassGradeDetails;
+    const marks=document.createElement("button");marks.className="btn";marks.id="v322MarksDetailsBtn";marks.textContent="Export Marks Details";marks.onclick=v322ExportSelectedClassMarksDetails;
+    const anchor=host.querySelector("button");
+    if(anchor){host.insertBefore(marks,anchor);host.insertBefore(grade,marks);}else{host.appendChild(grade);host.appendChild(marks);}
+  }
+};
+
+const v322RenderResultsBase=renderResults;
+renderResults=async function(){
+  setPageActions("");
+  await v322RenderResultsBase();
+  setPageActions("");
+};
+window.renderResults=renderResults;
+Object.assign(window,{refreshResults,v322ExportSelectedClassGradeDetails,v322ExportSelectedClassMarksDetails});
+
+/* Build: v32.2 FINAL — selected class Grade Details + Marks Details Excel exports. */

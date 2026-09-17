@@ -172,3 +172,12 @@ html,body{margin:0;min-height:100%;font-family:"Segoe UI",Arial,sans-serif;backg
 .v27-warning{color:#D64545;font-weight:900}
 .v27-component-conflict td{background:#FFF0EF!important}
 .v27-fm-conflict-input{background:#FFDAD7!important;border:2px solid #D64545!important;color:#A61F1F!important;font-weight:800}
+
+/* v28 — Result Processing conflict visibility */
+.v28-result-conflict-status{border-color:#E9A29C;background:#FFF7F6}
+
+
+/* v30 — deep Full Marks conflict trace */
+.v30-old-subject{color:#A61F1F;font-weight:900}
+.v30-trace-ids{white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:#6F211C;background:#FFF8F7!important}
+.v27-conflict-table{min-width:1040px!important}
