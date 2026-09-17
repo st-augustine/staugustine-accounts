@@ -2479,3 +2479,119 @@ window.renderResults=renderResults;
 Object.assign(window,{refreshResults,v322ExportSelectedClassGradeDetails,v322ExportSelectedClassMarksDetails});
 
 /* Build: v32.2 FINAL — selected class Grade Details + Marks Details Excel exports. */
+
+/* ============================================================
+   v32.3 — FAST-CLICK / STALE-RENDER SAFETY
+   ------------------------------------------------------------
+   Purpose: prevent intermittent "Cannot set properties of null
+   (setting 'innerHTML')" errors when a different Marks page is
+   clicked before the previous async page has finished rendering.
+
+   Scope: UI timing only. No marks/result calculation, Supabase
+   tables, exports, grade sheets, subjects, students or SQL logic
+   is changed.
+   ============================================================ */
+(function(){
+  const v323DomRaceError=e=>/Cannot\s+(?:set|read)\s+properties\s+of\s+(?:null|undefined)|Cannot\s+read\s+property/i.test(String(e?.message||e||''));
+
+  if(!Number.isFinite(Number(state._uiEpoch)))state._uiEpoch=0;
+  state._navBusy=false;
+  state._pendingPage=null;
+
+  /* A page-specific async task may finish after the user has moved
+     to another page. In that case a missing old-page DOM node is a
+     stale render, not a real application/data error. */
+  function v323WrapPageTask(base,page,label){
+    return async function(...args){
+      const epoch=Number(state._uiEpoch||0);
+      try{return await base.apply(this,args);}
+      catch(e){
+        if((state.page!==page||Number(state._uiEpoch||0)!==epoch)&&v323DomRaceError(e)){
+          console.debug(`[v32.3] Ignored stale ${label||page} render after page change.`,e);
+          return;
+        }
+        throw e;
+      }
+    };
+  }
+
+  /* Protect the short async refreshers that can still be running when
+     navigation starts after a page is already visible. */
+  const _v323LoadStudents=loadStudents;
+  loadStudents=v323WrapPageTask(_v323LoadStudents,'students','student list');
+
+  const _v323SubjectSetup=v15LoadSubjectAndCreditSetup;
+  v15LoadSubjectAndCreditSetup=v323WrapPageTask(_v323SubjectSetup,'subjects','subject setup');
+
+  const _v323LoadMarkSubjects=loadMarkSubjects;
+  loadMarkSubjects=v323WrapPageTask(_v323LoadMarkSubjects,'marks','marks subject list');
+
+  const _v323LoadMarksSheet=v15LoadMarksSheet;
+  v15LoadMarksSheet=v323WrapPageTask(_v323LoadMarksSheet,'marks','marks sheet');
+  loadMarksSheet=async function(){return v15LoadMarksSheet();};
+  loadSelectedMarksSheets=async function(){return v15LoadMarksSheet();};
+
+  const _v323RefreshResults=refreshResults;
+  refreshResults=v323WrapPageTask(_v323RefreshResults,'results','result refresh');
+
+  /* Serialize only full-page navigation. Fast repeated clicks are not
+     lost: while one page is loading, the LAST clicked page is queued
+     and opens immediately after the current render finishes. This
+     keeps old and new page DOM trees from being rendered concurrently. */
+  navigate=async function(page){
+    const target=String(page||'dashboard');
+    if(state._navBusy){
+      state._pendingPage=target;
+      return;
+    }
+
+    state._navBusy=true;
+    state._pendingPage=null;
+    const epoch=++state._uiEpoch;
+    state.page=target;
+    renderNav();
+    setV5Title(target);
+    setPageActions('');
+
+    const content=$('#content');
+    if(content)content.innerHTML=`<div class="section"><div class="empty">Loading…</div></div>`;
+
+    const map={
+      dashboard:renderDashboard,
+      students:renderStudents,
+      marks:renderMarks,
+      importMarks:renderImportMarksLedger,
+      subjects:renderSubjects,
+      results:renderResults,
+      settings:renderSettings,
+      backup:renderBackup
+    };
+
+    try{
+      await (map[target]||renderDashboard)();
+    }catch(e){
+      console.error(e);
+      /* If another click was queued while this render was running, do
+         not flash a harmless old-page null-DOM error to the user. */
+      const hasQueued=!!state._pendingPage;
+      if(!(hasQueued&&v323DomRaceError(e))){
+        const host=$('#content');
+        if(host&&Number(state._uiEpoch||0)===epoch&&state.page===target){
+          host.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;
+        }
+      }
+    }finally{
+      state._navBusy=false;
+      const pending=state._pendingPage;
+      state._pendingPage=null;
+      if(pending&&pending!==state.page){
+        setTimeout(()=>navigate(pending),0);
+      }
+    }
+  };
+
+  Object.assign(window,{navigate,loadStudents,loadMarkSubjects,loadMarksSheet,loadSelectedMarksSheets,refreshResults});
+})();
+
+/* Build: v32.3 — fast-click/stale-render safety only. */
+
