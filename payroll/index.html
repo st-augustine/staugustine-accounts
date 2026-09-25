@@ -201,11 +201,12 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
     <div class="field"><label>Nepali Year</label><input id="payYear" class="input" type="number" min="2000" max="2200"></div>
     <div class="field"><label>Nepali Month</label><select id="payMonth"></select></div>
     <button class="btn primary" onclick="generatePayroll()">↻ Generate</button>
+    <button class="btn danger" onclick="ungeneratePayroll()">↶ Ungenerate Month</button>
     <button id="unlockBtn" class="btn ghost" onclick="togglePayrollEdit()">✎ Edit Payroll</button>
     <button id="saveAllBtn" class="btn ok" onclick="saveAllPayrollChanges()" disabled>✓ Save & Lock</button>
   </div>
   <div class="lockbar no-print"><div id="lockState" class="lockstate"><span class="lock-dot"></span><span>Locked — click Edit Payroll to change all draft rows.</span></div><div class="bulk-actions"><button class="btn small ghost" onclick="selectAllVisible(true)">All</button><button class="btn small ghost" onclick="selectAllVisible(false)">Clear</button><button class="btn small warn" onclick="markSelectedPaid()">Paid</button><button class="btn small ok" onclick="provideSelectedSalary()">✓ Provide Selected</button></div></div>
-  <div class="note payroll-guide no-print"><b>Flow:</b> Generate → Edit Payroll → correct any row → Save & Lock → Provide Salary. A Provided row must be Reopened before correction; reports use Provided records only.</div>
+  <div class="note payroll-guide no-print"><b>Flow:</b> Generate → Edit Payroll → correct any row → Save & Lock → Provide Salary. Use <b>Ungenerate Month</b> to clear a generated draft month and Generate it again from Staff Master. A Provided row must be Reopened first; reports use Provided records only.</div>
   <div id="payrollTopScrollWrap" class="payroll-top-scroll-wrap no-print" style="display:none"><div id="payrollTopScroll" class="payroll-top-scroll"><div id="payrollTopScrollInner"></div></div><div class="payroll-scroll-hint">↔ Horizontal sheet scroll</div></div>
   <div id="payrollTableBox" class="tablebox payroll-tablebox"><table id="payrollTable" class="table"><thead><tr>
     <th class="center no-print w-check" title="Select">✓</th><th class="w-staff" title="Staff">Staff</th><th class="w-basic" title="Basic Salary">Basic</th><th class="w-allow" title="Allowance">Allow.</th><th class="w-gross" title="Gross Salary">Gross</th><th class="w-ssf" title="SSF / SSI">SSF</th><th class="w-taxpct" title="Tax Percentage">Tax%</th><th class="w-tax" title="Tax Amount">Tax</th><th class="w-absdays" title="Absent Days">Abs.D</th><th class="w-absded" title="Absent Deduction">Abs.Ded</th><th class="w-other" title="Other Deduction">Other</th><th class="w-advance" title="Advance / Loan">Adv.</th><th class="w-net" title="Net Salary">Net</th><th class="w-mode" title="Payment Mode">Mode</th><th class="w-status" title="Payment Status">Status</th><th class="w-date" title="Payment Date">Pay Date</th><th class="w-salary" title="Salary Provided Status">Salary</th><th class="no-print w-action" title="Actions">Action</th>
@@ -446,6 +447,28 @@ function saveStaff(){let id=document.getElementById('staffEditId').value,code=do
 function deleteStaff(id){let s=db.staff.find(x=>x.id===id);if(!s)return;if(!confirm(`Delete ${s.name}? Existing monthly payroll records will be kept.`))return;db.staff=db.staff.filter(x=>x.id!==id);saveDB();renderStaff();renderDashboard();showToast('Staff deleted.')}
 
 function generatePayroll(){let key=selectedPeriod('pay');db.staff.filter(s=>s.active).forEach(s=>{let existing=db.payroll.find(p=>p.period===key&&p.staffId===s.id);if(!existing){let allowance=s.defaultAllowance>0?[{name:'Allowance',amount:n(s.defaultAllowance)}]:[];let gross=n(s.basic)+n(s.defaultAllowance),ssf=n(s.ssf),taxable=Math.max(0,gross-ssf),pct=n(s.taxPct);db.payroll.push({id:cryptoId(),period:key,staffId:s.id,staffCode:s.code,staffName:s.name,role:s.role,basic:n(s.basic),workingDays:n(db.settings.workingDays)||30,absentDays:0,absentDed:0,taxPct:pct,taxMode:'auto',taxAmount:roundTax(taxable*pct/100),ssf,otherDed:n(s.otherDed),advance:0,allowances:allowance,status:'Pending',paymentDate:'',paymentMode:'Cash',remarks:'',provided:false,providedAt:'',providedLabel:''})}});saveDB();payrollUnlocked=false;renderPayroll();syncPeriod('pay','dash');syncPeriod('pay','report');renderDashboard();renderReports();showToast('Monthly payroll generated / refreshed.')}
+
+function ungeneratePayroll(){
+  let key=selectedPeriod('pay');
+  let rows=db.payroll.filter(x=>x.period===key);
+  if(!rows.length){showToast(`No generated payroll found for ${periodLabel(key)}.`);return}
+  let provided=rows.filter(x=>x.provided);
+  if(provided.length){
+    showToast(`${provided.length} salary record(s) are already Provided. Reopen them first, then Ungenerate.`);
+    return
+  }
+  if(!confirm(`Ungenerate ${periodLabel(key)} payroll?\n\nThis will remove all ${rows.length} generated draft rows for this month. You can Generate again from the current Staff Master values.`))return;
+  db.payroll=db.payroll.filter(x=>x.period!==key);
+  saveDB();
+  payrollUnlocked=false;
+  renderPayroll();
+  syncPeriod('pay','dash');
+  syncPeriod('pay','report');
+  renderDashboard();
+  renderReports();
+  showToast(`${periodLabel(key)} payroll ungenerate complete. Click Generate to create it again.`)
+}
+
 function visiblePayrollRows(){let key=selectedPeriod('pay');return db.payroll.filter(x=>x.period===key).map(calcRecord).sort((a,b)=>a.staffName.localeCompare(b.staffName))}
 function togglePayrollEdit(){payrollUnlocked=!payrollUnlocked;renderPayroll();showToast(payrollUnlocked?'All payroll rows unlocked for editing.':'Payroll locked.')}
 function payrollInput(r,field,type='number',extra=''){let value=r[field]??'',editable=payrollUnlocked&&!r.provided;return `<input ${editable?'':'disabled'} data-id="${r.id}" data-field="${field}" type="${type}" value="${esc(value)}" ${extra} oninput="rowRecalc('${r.id}')">`}
