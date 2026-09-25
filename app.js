@@ -3171,9 +3171,80 @@ async function v18SaveAppSettings(payload,msg){const {error}=await sb.from('app_
 async function v18UploadAsset(file,pathColumn,stableBase){if(!file)return;const ext=(file.name.split('.').pop()||'png').toLowerCase().replace(/[^a-z0-9]/g,'')||'png',path=`settings/${stableBase}.${ext}`;const {error}=await sb.storage.from('account-assets').upload(path,file,{upsert:true,contentType:file.type||undefined});if(error)throw error;await v18SaveAppSettings({[pathColumn]:path},'Asset uploaded online.');renderSettings();}
 async function v18RemoveAsset(key,pathColumn){const path=db.settings._assetPaths?.[key]||'';try{if(path)await sb.storage.from('account-assets').remove([path]);await v18SaveAppSettings({[pathColumn]:null},'Asset removed.');renderSettings();}catch(e){toast('Could not remove asset: '+(e?.message||'Unknown error'));}}
 
+
+/* ============================================================
+   V20 — SECURE CEO / MD PASSWORD RESET
+   Service-role credentials stay inside the Accounts Edge Function.
+   The browser sends only the logged-in Accountant access token.
+   ============================================================ */
+const V20_PASSWORD_RESET_FUNCTION=`${SUPABASE_URL}/functions/v1/reset-role-password`;
+
+async function v20ResetRolePassword(role,newPassword){
+  if(!isAccountant())throw new Error('Accountant access required.');
+  const target=String(role||'').trim().toLowerCase();
+  if(!['ceo','md'].includes(target))throw new Error('Invalid account role.');
+  if(String(newPassword||'').length<6)throw new Error('Password must contain at least 6 characters.');
+
+  const {data:{session},error:sessionError}=await sb.auth.getSession();
+  if(sessionError)throw sessionError;
+  if(!session?.access_token)throw new Error('Your Accounts login session has expired. Please login again.');
+
+  const response=await fetch(V20_PASSWORD_RESET_FUNCTION,{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'apikey':SUPABASE_PUBLISHABLE_KEY,
+      'Authorization':`Bearer ${session.access_token}`
+    },
+    body:JSON.stringify({role:target,new_password:String(newPassword)})
+  });
+
+  let payload={};
+  try{payload=await response.json();}catch(_e){}
+  if(!response.ok)throw new Error(payload?.error||`Password reset failed (${response.status}).`);
+  return payload;
+}
+
+function v20BindRolePasswordReset(formId,role,label){
+  const form=$('#'+formId);
+  if(!form)return;
+
+  form.querySelectorAll('input,button').forEach(x=>x.disabled=false);
+  if(!form.querySelector('.v20-reset-note')){
+    form.insertAdjacentHTML(
+      'beforeend',
+      '<div class="full card-note v20-reset-note">Secure server-side reset. The service-role key is never stored in this browser.</div>'
+    );
+  }
+
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    const fd=new FormData(form);
+    const next=String(fd.get('next')||'');
+    const confirmPassword=String(fd.get('confirm')||'');
+    if(next!==confirmPassword)return toast('New passwords do not match.');
+    if(next.length<6)return toast('Use at least 6 characters for the new password.');
+    if(!confirm(`Reset ${label} password now?`))return;
+
+    const btn=form.querySelector('button[type="submit"],button');
+    const oldText=btn?.textContent||'Reset Password';
+    if(btn){btn.disabled=true;btn.textContent='Resetting…';}
+    try{
+      await v20ResetRolePassword(role,next);
+      form.reset();
+      toast(`${label} password reset successfully.`);
+    }catch(err){
+      console.error('Role password reset failed:',err);
+      toast(err?.message||`${label} password reset failed.`);
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent=oldText;}
+    }
+  };
+}
+
 const _v18RenderSettingsBase=renderSettings;renderSettings=function(){_v18RenderSettingsBase();if(!isAccountant())return;const set=$('#setForm');if(set)set.onsubmit=async e=>{e.preventDefault();const fd=new FormData(set);try{await v18SaveAppSettings({school_name:fd.get('schoolName'),address:fd.get('address'),estd:fd.get('estd'),phone:fd.get('phone'),pan:fd.get('pan'),issued_by:fd.get('issuedBy'),working_nepali_date:fd.get('workingDate'),cash_opening_balance:num(fd.get('cashOpeningBalance'))},'General settings saved online.');renderSettings();}catch(err){toast('Settings NOT saved: '+(err?.message||'Unknown error'));}};const numForm=$('#numberForm');if(numForm)numForm.onsubmit=async e=>{e.preventDefault();const fd=new FormData(numForm),rows=[['fee_receipt',fd.get('receiptPrefix'),fd.get('nextReceiptNumber')],['quick_receipt',fd.get('quickReceiptPrefix'),fd.get('nextQuickReceiptNumber')],['expense_voucher',fd.get('expensePrefix'),fd.get('nextExpenseNumber')],['student_registration',fd.get('registrationPrefix'),fd.get('nextRegistrationNumber')]];try{for(const [key,prefix,next] of rows){const {error}=await sb.from('document_counters').update({prefix:prefix||'',next_number:Math.max(1,num(next))}).eq('counter_key',key);if(error)throw error;}await v18LoadSharedSettings();renderSettings();toast('Numbering settings saved online.');}catch(err){toast('Numbering NOT saved: '+(err?.message||'Unknown error'));}};const remind=$('#remindForm');if(remind)remind.onsubmit=async e=>{e.preventDefault();const fd=new FormData(remind);try{await v18SaveAppSettings({reminder_header:fd.get('remindHeader'),reminder_whatsapp:fd.get('reminderWhatsApp'),reminder_template:fd.get('reminderTemplate'),reminder_online_note:fd.get('reminderOnlineNote')},'Reminder settings saved online.');renderSettings();}catch(err){toast('Reminder settings NOT saved: '+(err?.message||'Unknown error'));}};const admit=$('#admitSetForm');if(admit)admit.onsubmit=async e=>{e.preventDefault();const fd=new FormData(admit);try{await v18SaveAppSettings({admit_card_term:fd.get('admitCardTerm'),admit_card_title:fd.get('admitCardTitle'),exam_coordinator_name:fd.get('examCoordinatorName'),exam_coordinator_post:fd.get('examCoordinatorPost'),principal_name:fd.get('principalName'),principal_post:fd.get('principalPost'),accountant_sign_name:fd.get('accountantSignName'),accountant_sign_post:fd.get('accountantSignPost')},'Admit Card settings saved online.');renderSettings();}catch(err){toast('Admit Card settings NOT saved: '+(err?.message||'Unknown error'));}};
   const logo=$('#logoUpload'),qr=$('#qrUpload'),se=$('#sigExamUpload'),sp=$('#sigPrincipalUpload'),sa=$('#sigAccountantUpload');if(logo)logo.onchange=e=>v18UploadAsset(e.target.files?.[0],'logo_path','school-logo');if(qr)qr.onchange=e=>v18UploadAsset(e.target.files?.[0],'reminder_qr_path','reminder-qr');if(se)se.onchange=e=>v18UploadAsset(e.target.files?.[0],'exam_coordinator_signature_path','exam-signature');if(sp)sp.onchange=e=>v18UploadAsset(e.target.files?.[0],'principal_signature_path','principal-signature');if(sa)sa.onchange=e=>v18UploadAsset(e.target.files?.[0],'accountant_signature_path','accountant-signature');const rmLogo=$('#removeLogo');if(rmLogo)rmLogo.onclick=()=>v18RemoveAsset('logo','logo_path');const rmQR=$('#removeQR');if(rmQR)rmQR.onclick=()=>v18RemoveAsset('qr','reminder_qr_path');$$('[data-remove-sig]').forEach(btn=>btn.onclick=()=>{const key=btn.dataset.removeSig;if(key==='examCoordinatorSignatureData')v18RemoveAsset('sigExam','exam_coordinator_signature_path');if(key==='principalSignatureData')v18RemoveAsset('sigPrincipal','principal_signature_path');if(key==='accountantSignatureData')v18RemoveAsset('sigAccountant','accountant_signature_path');});
-  const own=$('#changeOwn');if(own)own.onsubmit=async e=>{e.preventDefault();const fd=new FormData(own);if(fd.get('next')!==fd.get('confirm'))return toast('New passwords do not match.');try{const {error:reauth}=await sb.auth.signInWithPassword({email:ACCOUNT_EMAILS.accountant,password:fd.get('current')});if(reauth)throw new Error('Current password is incorrect.');const {error}=await sb.auth.updateUser({password:fd.get('next')});if(error)throw error;await logout('Password changed. Please login again.');}catch(err){toast(err?.message||'Password change failed.');}};for(const id of ['resetCEO','resetMD']){const form=$('#'+id);if(form){form.querySelectorAll('input,button').forEach(x=>x.disabled=true);form.insertAdjacentHTML('beforeend','<div class="full card-note">For security, MD/CEO password reset is done from Supabase Auth Dashboard; no service-role key is stored in this browser.</div>');}}
+  const own=$('#changeOwn');if(own)own.onsubmit=async e=>{e.preventDefault();const fd=new FormData(own);if(fd.get('next')!==fd.get('confirm'))return toast('New passwords do not match.');try{const {error:reauth}=await sb.auth.signInWithPassword({email:ACCOUNT_EMAILS.accountant,password:fd.get('current')});if(reauth)throw new Error('Current password is incorrect.');const {error}=await sb.auth.updateUser({password:fd.get('next')});if(error)throw error;await logout('Password changed. Please login again.');}catch(err){toast(err?.message||'Password change failed.');}};v20BindRolePasswordReset('resetCEO','ceo','CEO');v20BindRolePasswordReset('resetMD','md','MD');
 };
 
 /* MD/CEO Access Control — central user_report_permissions */
@@ -4575,3 +4646,147 @@ window.v17RenderSavedReceiptToWindow=v17RenderSavedReceiptToWindow;
   window.v18SaveExpense=v18SaveExpense;
 })();
 /* ================== END V19.11 QUICK/EXPENSE PATCH ================== */
+
+
+/* ==================== V19.12 FAST-CLICK / STALE-RENDER SAFETY ====================
+   Purpose: prevent detached-page render callbacks from touching DOM nodes that no
+   longer exist when the user changes modules quickly. Marks Entry is untouched.
+=============================================================================== */
+(function(){
+  let navEpoch=0;
+  let lastNavAt=0;
+
+  function isDetachedUiError(err){
+    const m=String(err?.message||err||'');
+    return /Cannot (?:set|read) propert(?:y|ies) of null/i.test(m)
+      || /Cannot (?:set|read) propert(?:y|ies) of undefined/i.test(m);
+  }
+
+  /* Count every real module change. Any asynchronous result started on an older
+     module is considered stale and must not repaint the new module. */
+  if(typeof navigate==='function'){
+    const baseNavigate=navigate;
+    navigate=function(page){
+      if(String(page||'')!==String(session?.page||'')){
+        navEpoch+=1;
+        lastNavAt=Date.now();
+      }
+      return baseNavigate.apply(this,arguments);
+    };
+    window.navigate=navigate;
+  }
+
+  /* MD/CEO report calls are asynchronous. If the user has already changed page,
+     keep the stale promise pending so its old .then/.catch UI code never runs. */
+  if(typeof v18ReportCall==='function'){
+    const baseReportCall=v18ReportCall;
+    v18ReportCall=async function(){
+      const startEpoch=navEpoch;
+      const startPage=String(session?.page||'');
+      try{
+        const data=await baseReportCall.apply(this,arguments);
+        if(startEpoch!==navEpoch || startPage!==String(session?.page||'')){
+          return await new Promise(()=>{});
+        }
+        return data;
+      }catch(err){
+        if(startEpoch!==navEpoch || startPage!==String(session?.page||'')){
+          return await new Promise(()=>{});
+        }
+        throw err;
+      }
+    };
+    window.v18ReportCall=v18ReportCall;
+  }
+
+  function wrapUiFunction(name,page,selectors){
+    const original=window[name];
+    if(typeof original!=='function' || original.__saFastClickGuard)return;
+    selectors=Array.isArray(selectors)?selectors:[];
+    const wrapped=function(){
+      if(page && String(session?.page||'')!==String(page))return;
+      for(const selector of selectors){
+        if(!document.querySelector(selector))return;
+      }
+      try{
+        return original.apply(this,arguments);
+      }catch(err){
+        const pageGone=page && String(session?.page||'')!==String(page);
+        const hostGone=selectors.some(selector=>!document.querySelector(selector));
+        if(isDetachedUiError(err) && (pageGone||hostGone)){
+          console.debug('[V19.12] Ignored stale UI render:',name);
+          return;
+        }
+        throw err;
+      }
+    };
+    wrapped.__saFastClickGuard=true;
+    wrapped.__saFastClickOriginal=original;
+    window[name]=wrapped;
+  }
+
+  /* Guard page renderers too. This stops an old async save/delete callback from
+     forcing its former page back over the page the user has already opened. */
+  [
+    ['renderDashboard','dashboard'],
+    ['renderFeePayment','feePayment'],
+    ['renderQuickReceipt','quickReceipt'],
+    ['renderQuickRegister','quickRegister'],
+    ['renderStudents','students'],
+    ['renderStudentUpdate','studentUpdate'],
+    ['renderStudentSearch','studentSearch'],
+    ['renderAdmitCard','admitCard'],
+    ['renderReceiptRegister','receiptRegister'],
+    ['renderFeeStructure','feeStructure'],
+    ['renderDailyCollection','dailyCollection'],
+    ['renderOutstanding','outstanding'],
+    ['renderExamHallPass','examHallPass'],
+    ['renderExpenses','expenses'],
+    ['renderBanking','banking'],
+    ['renderDayBook','daybook'],
+    ['renderMonthly','monthly'],
+    ['renderHeadwise','headwise'],
+    ['renderReports','reports'],
+    ['renderAccess','access'],
+    ['renderSettings','settings'],
+    ['renderHelp','help']
+  ].forEach(([name,page])=>wrapUiFunction(name,page,['#content']));
+
+  /* Guard the final draw/refresh functions that write into page-specific hosts. */
+  [
+    ['drawStudentList','students',['#studentHost']],
+    ['drawStudentReport','studentSearch',['#studentReportHost','#searchStudent','#searchYear']],
+    ['fillPayStudents','feePayment',['#payYear','#payClass','#payStudent','#payHost']],
+    ['drawPayPanel','feePayment',['#payStudent','#payYear','#payHost']],
+    ['drawPaymentCalc','feePayment',['#payCalc']],
+    ['drawReceiptRegister','receiptRegister',['#receiptRegHost']],
+    ['drawQuickList','quickReceipt',['#quickList']],
+    ['drawDailyCollection','dailyCollection',['#dailyHost']],
+    ['drawOutstanding','outstanding',['#outHost']],
+    ['drawHallPass','examHallPass',['#hallHost']],
+    ['drawExpenses','expenses',['#expHost']],
+    ['v18DrawExpenses','expenses',['#expHost']],
+    ['drawDayBook','daybook',['#dayHost']],
+    ['drawReports','reports',['#reportHost']],
+    ['drawBankReport','banking',['#bankReportHost']],
+    ['drawBankList','banking',['#bankList']],
+    ['v195DrawBankTxRegister','banking',['#v195BankTxRegister']],
+    ['drawAdmitList','admitCard',['#admitHost']],
+    ['drawStudentUpdate','studentUpdate',['#studentUpdateHost']],
+    ['drawRoutes','feeStructure',['#routeHost']],
+    ['drawTransportPlans','feeStructure',['#transportPlanHost']],
+    ['drawFeeHeads','feeStructure',['#headHost']],
+    ['drawFeePlans','feeStructure',['#planHost']]
+  ].forEach(([name,page,selectors])=>wrapUiFunction(name,page,selectors));
+
+  /* Last-resort browser-level protection for a stale callback from an older patch.
+     It only suppresses the exact detached-null UI error immediately after navigation;
+     genuine errors on the current page are still allowed through. */
+  window.addEventListener('error',function(ev){
+    if(Date.now()-lastNavAt>1800)return;
+    if(!isDetachedUiError(ev.error))return;
+    console.debug('[V19.12] Suppressed detached-page UI error:',ev.error?.message||'');
+    ev.preventDefault();
+  },true);
+})();
+/* ================== END V19.12 FAST-CLICK / STALE-RENDER SAFETY ================== */
