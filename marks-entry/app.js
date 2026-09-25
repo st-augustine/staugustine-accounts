@@ -6,6 +6,29 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, 
   auth:{persistSession:true,storage:window.sessionStorage,storageKey:"sa_marks_session",autoRefreshToken:true,detectSessionInUrl:false}
 });
 
+/* ACCOUNTS → MARKS SINGLE LOGIN BRIDGE
+   Accounts authenticates the human user; the Edge Function creates/refreshes
+   a short-lived Marks admin session without exposing a Marks password. */
+const ACCOUNTS_SUPABASE_URL = "https://hspsaglksnmhuqfuxccm.supabase.co";
+const ACCOUNTS_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_-byhdB5_dxkqQ0YXmC8yEQ_xDSWMbOp";
+const ACCOUNTS_AUTH_STORAGE_KEY = "sa_accounts_supabase_session";
+const ACCOUNTANT_EMAIL = "accountant@staugustine.edu.np";
+const MARKS_SSO_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/accounts-sso`;
+
+const accountsSb = window.supabase.createClient(
+  ACCOUNTS_SUPABASE_URL,
+  ACCOUNTS_SUPABASE_PUBLISHABLE_KEY,
+  {
+    auth:{
+      persistSession:true,
+      storage:window.sessionStorage,
+      storageKey:ACCOUNTS_AUTH_STORAGE_KEY,
+      autoRefreshToken:true,
+      detectSessionInUrl:false
+    }
+  }
+);
+
 const CLASSES=["Nursery","LKG","UKG",...Array.from({length:10},(_,i)=>`Class ${i+1}`)];
 const $=s=>document.querySelector(s); const $$=s=>[...document.querySelectorAll(s)];
 let state={user:null,profile:null,page:"dashboard",years:[],yearId:null,settings:{},grades:[],marksContext:null};
@@ -809,15 +832,83 @@ async function v5ResolveLogin(login){
   throw new Error("Invalid username or password.");
 }
 
-async function init(){
-  $("#closeModal").onclick=closeModal;$("#modalBackdrop").onclick=e=>{if(e.target.id==="modalBackdrop")closeModal()};
-  $("#yearSelect").onchange=async()=>{state.yearId=num($("#yearSelect").value);await navigate(state.page)};
-  $("#logoutBtn").onclick=async()=>{await sb.auth.signOut();location.reload()};
-  $("#loginForm").onsubmit=async e=>{
-    e.preventDefault();const login=$("#loginUser").value.trim(),password=$("#loginPassword").value;
-    try{const email=await v5ResolveLogin(login);const {data,error}=await sb.auth.signInWithPassword({email,password});if(error)throw error;await enterApp(data.user);}catch(err){await sb.auth.signOut().catch(()=>{});toast(errMsg(err));}
+async function ensureMarksSsoSession(){
+  const status=$("#ssoStatus"),errBox=$("#ssoError");
+  const setStatus=(msg)=>{if(status)status.textContent=msg};
+  const fail=(msg)=>{
+    if(errBox){errBox.style.display="block";errBox.textContent=msg}
+    throw new Error(msg);
   };
-  const {data:{session}}=await sb.auth.getSession();if(session?.user){try{await enterApp(session.user);}catch(e){console.error(e);await sb.auth.signOut();toast(errMsg(e));}}
+
+  setStatus("Checking Accounts login…");
+  const {data:accountsData,error:accountsError}=await accountsSb.auth.getSession();
+  if(accountsError)fail(errMsg(accountsError));
+
+  const accountsSession=accountsData?.session;
+  const email=String(accountsSession?.user?.email||"").trim().toLowerCase();
+  if(!accountsSession?.user){
+    setStatus("Accounts login required. Redirecting…");
+    window.location.replace("../index.html");
+    return null;
+  }
+  if(email!==ACCOUNTANT_EMAIL){
+    setStatus("Marks Entry is available to the Accountant administrator only. Redirecting…");
+    setTimeout(()=>window.location.replace("../index.html"),500);
+    return null;
+  }
+
+  // Reuse an already valid Marks session when present.
+  const {data:marksData,error:marksSessionError}=await sb.auth.getSession();
+  if(marksSessionError)console.warn("Existing Marks session check:",marksSessionError);
+  if(marksData?.session?.user){
+    setStatus("Opening Marks Entry…");
+    return marksData.session.user;
+  }
+
+  setStatus("Creating secure Marks session…");
+  const response=await fetch(MARKS_SSO_FUNCTION_URL,{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "apikey":SUPABASE_PUBLISHABLE_KEY,
+      "Authorization":`Bearer ${accountsSession.access_token}`
+    },
+    body:"{}"
+  });
+
+  let payload={};
+  try{payload=await response.json()}catch(_e){}
+  if(!response.ok)fail(payload?.error||`Single-login bridge failed (${response.status}).`);
+  if(!payload?.token_hash)fail("Single-login bridge did not return a Marks token.");
+
+  const {data:verifyData,error:verifyError}=await sb.auth.verifyOtp({
+    token_hash:payload.token_hash,
+    type:"magiclink"
+  });
+  if(verifyError)fail(errMsg(verifyError));
+  if(!verifyData?.user)fail("Marks session could not be created.");
+
+  setStatus("Opening Marks Entry…");
+  return verifyData.user;
+}
+
+async function init(){
+  $("#closeModal").onclick=closeModal;
+  $("#modalBackdrop").onclick=e=>{if(e.target.id==="modalBackdrop")closeModal()};
+  $("#yearSelect").onchange=async()=>{state.yearId=num($("#yearSelect").value);await navigate(state.page)};
+  $("#logoutBtn").onclick=async()=>{
+    try{await sb.auth.signOut()}catch(_e){}
+    window.location.replace("../index.html");
+  };
+
+  try{
+    const user=await ensureMarksSsoSession();
+    if(user)await enterApp(user);
+  }catch(e){
+    console.error("Marks single-login failed:",e);
+    const box=$("#ssoError");
+    if(box){box.style.display="block";box.textContent=errMsg(e)}
+  }
 }
 
 async function v5DashboardCounts(){
@@ -924,7 +1015,7 @@ async function printGradeSheetHtml(html){const host=$("#content"),old=host.inner
 async function printSingleResult(studentId){const c=state.resultContext;if(!c)return;const r=c.results.find(x=>num(x.student.id)===num(studentId));if(!r)return toast("Student result not found.");const cfg=await gradeSheetSettings(c.cls);const issue=$("#issueDate")?.value||c.pub.publish_date_bs||"";if(!issue)return toast("Enter Date of Issue before preview/print.");await printGradeSheetHtml(gradeSheetHtml(r,c.exam,cfg,issue));await navigate("results");}
 async function printBulkResults(){const c=state.resultContext;if(!c)return toast("Calculate results first.");const ids=selectedResultStudentIds();if(!ids.length)return toast("Select the student(s) to print, or click Select All.");const issue=$("#issueDate")?.value||c.pub.publish_date_bs||"";if(!issue)return toast("Enter Date of Issue before Bulk PDF/Print.");const cfg=await gradeSheetSettings(c.cls),chosen=c.results.filter(r=>ids.includes(num(r.student.id)));if(!chosen.length)return toast("No selected student results found.");await printGradeSheetHtml(`<div class="print-batch">${chosen.map(r=>gradeSheetHtml(r,c.exam,cfg,issue)).join("")}</div>`);await navigate("results");}
 async function renderSettings(){
-  const exams=await examOptions();$("#content").innerHTML=`<div class="settings-grid"><div class="settings-card"><h3>School Information</h3><form id="schoolForm"><div class="stack-field"><label>School Name</label><input name="school_name" value="${esc(state.settings.school_name||"")}"></div><div class="stack-field"><label>School Address</label><input name="school_address" value="${esc(state.settings.school_address||"")}"></div><div class="stack-field"><label>Established</label><input name="established" value="${esc(state.settings.established||"")}"></div><div class="stack-field"><label>Principal Name / Label</label><input name="principal_name" value="${esc(state.settings.principal_name||"")}"></div><div class="stack-field"><label>School Logo</label><div class="logo-row"><input id="logoName" readonly value="${state.settings.school_logo_path?"Logo saved":""}"><button type="button" class="btn" id="chooseLogoBtn">Choose / Change Logo</button></div></div><input type="hidden" name="school_logo_path" id="logoData" value="${esc(state.settings.school_logo_path||"")}"><button class="btn primary settings-wide-btn">SAVE SCHOOL SETTINGS</button></form><button class="btn settings-wide-btn" onclick="v5ClassSettingsDialog()">Class-wise Grade-Sheet Settings</button><button class="btn settings-wide-btn" onclick="v5AdminAccountDialog()">Administrator ID / Password</button><button class="btn settings-wide-btn" onclick="v5GradingDialog()">Edit Grading Scale</button></div><div class="settings-card"><h3>Academic &amp; Examination Setup</h3><div class="stack-field"><label>Academic Year</label><div style="display:flex;gap:8px"><select id="settingsYear" style="max-width:150px">${state.years.map(y=>`<option value="${y.id}" ${num(y.id)===num(state.yearId)?"selected":""}>${esc(y.name)}</option>`).join("")}</select><button class="btn" id="activateSettingsYear">Activate</button></div></div><button class="btn primary" onclick="yearDialog()">+ Create New Academic Year</button><p style="color:var(--muted);font-size:11px;line-height:1.4">New academic years may copy subjects, components, class teacher/wording and examination structure. Students, marks and results are not copied.</p><h4 style="font-size:14px;margin:23px 0 8px">Examinations</h4><div class="exam-list">${exams.map(e=>`<div class="exam-item"><div><b>${esc(e.exam_type||e.name)}</b><small style="display:block;margin-top:3px">${esc(e.status)}${e.publish_date_bs?` • Issue: ${esc(e.publish_date_bs)}`:""}</small></div><div class="exam-actions"><button class="btn small" onclick="examDialog(${e.id})">Edit</button><button class="btn small red" onclick="deleteExam(${e.id})">Delete</button></div></div>`).join("")}</div><button class="btn primary settings-wide-btn" style="margin-top:28px" onclick="examDialog()">+ Add Examination</button></div></div>`;
+  const exams=await examOptions();$("#content").innerHTML=`<div class="settings-grid"><div class="settings-card"><h3>School Information</h3><form id="schoolForm"><div class="stack-field"><label>School Name</label><input name="school_name" value="${esc(state.settings.school_name||"")}"></div><div class="stack-field"><label>School Address</label><input name="school_address" value="${esc(state.settings.school_address||"")}"></div><div class="stack-field"><label>Established</label><input name="established" value="${esc(state.settings.established||"")}"></div><div class="stack-field"><label>Principal Name / Label</label><input name="principal_name" value="${esc(state.settings.principal_name||"")}"></div><div class="stack-field"><label>School Logo</label><div class="logo-row"><input id="logoName" readonly value="${state.settings.school_logo_path?"Logo saved":""}"><button type="button" class="btn" id="chooseLogoBtn">Choose / Change Logo</button></div></div><input type="hidden" name="school_logo_path" id="logoData" value="${esc(state.settings.school_logo_path||"")}"><button class="btn primary settings-wide-btn">SAVE SCHOOL SETTINGS</button></form><button class="btn settings-wide-btn" onclick="v5ClassSettingsDialog()">Class-wise Grade-Sheet Settings</button><button class="btn settings-wide-btn" onclick="v5AdminAccountDialog()">Accounts Single Login</button><button class="btn settings-wide-btn" onclick="v5GradingDialog()">Edit Grading Scale</button></div><div class="settings-card"><h3>Academic &amp; Examination Setup</h3><div class="stack-field"><label>Academic Year</label><div style="display:flex;gap:8px"><select id="settingsYear" style="max-width:150px">${state.years.map(y=>`<option value="${y.id}" ${num(y.id)===num(state.yearId)?"selected":""}>${esc(y.name)}</option>`).join("")}</select><button class="btn" id="activateSettingsYear">Activate</button></div></div><button class="btn primary" onclick="yearDialog()">+ Create New Academic Year</button><p style="color:var(--muted);font-size:11px;line-height:1.4">New academic years may copy subjects, components, class teacher/wording and examination structure. Students, marks and results are not copied.</p><h4 style="font-size:14px;margin:23px 0 8px">Examinations</h4><div class="exam-list">${exams.map(e=>`<div class="exam-item"><div><b>${esc(e.exam_type||e.name)}</b><small style="display:block;margin-top:3px">${esc(e.status)}${e.publish_date_bs?` • Issue: ${esc(e.publish_date_bs)}`:""}</small></div><div class="exam-actions"><button class="btn small" onclick="examDialog(${e.id})">Edit</button><button class="btn small red" onclick="deleteExam(${e.id})">Delete</button></div></div>`).join("")}</div><button class="btn primary settings-wide-btn" style="margin-top:28px" onclick="examDialog()">+ Add Examination</button></div></div>`;
   $("#schoolForm").onsubmit=saveSchoolSettings;$("#chooseLogoBtn").onclick=v5ChooseLogo;$("#activateSettingsYear").onclick=()=>activateYear(num($("#settingsYear").value));
 }
 async function v5ChooseLogo(){const input=document.createElement("input");input.type="file";input.accept="image/png,image/jpeg,image/webp,image/bmp";input.onchange=()=>{const f=input.files?.[0];if(!f)return;if(f.size>800000){toast("Please use a logo under 800 KB.");return;}const r=new FileReader();r.onload=async()=>{const value=String(r.result||"");if(!value.startsWith("data:image/"))return toast("Could not read the selected logo image.");const {error}=await sb.from("settings").upsert({key:"school_logo_path",value},{onConflict:"key"});if(error)return toast(errMsg(error));state.settings.school_logo_path=value;if($("#logoData"))$("#logoData").value=value;if($("#logoName"))$("#logoName").value=f.name;toast("School logo saved. It will appear on all grade-sheets.");};r.readAsDataURL(f)};input.click();}
@@ -932,34 +1023,12 @@ async function v5ChooseLogo(){const input=document.createElement("input");input.
 async function v5ClassSettingsDialog(){openModal("Class-wise Grade-Sheet Settings",`<form id="classSettingsForm" class="form-grid"><div class="field full"><label>Class</label><select id="cfgClass">${classOptions("Class 1")}</select></div><div class="info full">Fixed identifiers: ROLL NO. • SYMBOL NO. (labels cannot be renamed)</div><div class="field full"><label>Class Teacher</label><input id="cfgTeacher"></div><div class="field full"><label>Assessment / Exam Wording</label><input id="cfgAssessment"></div><div class="field"><label>B.S. Year Text</label><input id="cfgBs"></div><div class="field"><label>A.D. Year Text</label><input id="cfgAd"></div><div class="form-actions full"><button type="button" class="btn" onclick="closeModal()">Close</button><button class="btn primary">SAVE CLASS SETTINGS</button></div></form>`);const load=async()=>{const cls=$("#cfgClass").value;const {data,error}=await sb.from("class_settings").select("*").eq("academic_year_id",state.yearId).eq("class_name",cls).maybeSingle();if(error)return toast(errMsg(error));$("#cfgTeacher").value=data?.class_teacher||"";$("#cfgAssessment").value=data?.assessment_label||"";$("#cfgBs").value=data?.bs_year_text||currentYear()?.name||"";$("#cfgAd").value=data?.ad_year_text||v5AdYear(currentYear()?.name||"");};$("#cfgClass").onchange=load;await load();$("#classSettingsForm").onsubmit=async e=>{e.preventDefault();const p={academic_year_id:state.yearId,class_name:$("#cfgClass").value,class_teacher:$("#cfgTeacher").value.trim(),assessment_label:$("#cfgAssessment").value.trim(),bs_year_text:$("#cfgBs").value.trim(),ad_year_text:$("#cfgAd").value.trim()};const {error}=await sb.from("class_settings").upsert(p,{onConflict:"academic_year_id,class_name"});if(error)return toast(errMsg(error));toast("Grade-Sheet settings saved.");};}
 
 async function v5AdminAccountDialog(){
-  openModal("Administrator Account",`<form id="adminAccountForm" class="form-grid"><div class="info full">Change the administrator ID and password. The login screen will never display or pre-fill your credentials.</div><div class="field full"><label>Current Password</label><input name="current" type="password" required autocomplete="current-password"></div><div class="field full"><label>New Administrator ID</label><input name="username" value="${esc(state.profile?.username||"admin")}" required autocomplete="off"></div><div class="field full"><label>New Password</label><input name="newpass" type="password" autocomplete="new-password"></div><div class="field full"><label>Confirm New Password</label><input name="confirm" type="password" autocomplete="new-password"></div><div class="info full">Leave New Password blank if you only want to change the Administrator ID. The authentication email remains private and unchanged.</div><div class="form-actions full"><button type="button" class="btn" onclick="closeModal()">Cancel</button><button class="btn primary">UPDATE ADMIN LOGIN</button></div></form>`);
-  $("#adminAccountForm").onsubmit=async e=>{
-    e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));const username=String(f.username||"").trim(),oldUsername=String(state.profile?.username||"").trim();
-    if(!username)return toast("Administrator ID cannot be blank.");
-    if(f.newpass&&f.newpass!==f.confirm)return toast("New passwords do not match.");
-    if(f.newpass&&f.newpass.length<6)return toast("Use at least 6 characters for the new password.");
-    const email=state.user?.email;if(!email)return toast("Administrator authentication email is unavailable.");
-    const verify=await sb.auth.signInWithPassword({email,password:f.current});if(verify.error)return toast("Current password is incorrect.");
-    if(username.toLowerCase()!==oldUsername.toLowerCase()){
-      const probe=await sb.rpc("resolve_marks_login",{p_username:oldUsername||username});
-      if(probe.error)return toast("Administrator ID login support is not installed yet. Run FINAL_SUPPORT_SQL.sql once in the Marks Supabase project, then try again.");
-    }
-    const {error:ue}=await sb.from("app_users").update({username}).eq("auth_user_id",state.user.id);if(ue)return toast(errMsg(ue));
-    if(username.toLowerCase()!==oldUsername.toLowerCase()){
-      const check=await sb.rpc("resolve_marks_login",{p_username:username});
-      if(check.error||String(check.data||"").toLowerCase()!==String(email).toLowerCase()){
-        try{await sb.from("app_users").update({username:oldUsername||null}).eq("auth_user_id",state.user.id);}catch(_e){}
-        return toast("Administrator ID could not be verified. Run FINAL_SUPPORT_SQL.sql and try again.");
-      }
-    }
-    if(f.newpass){const {error:pe}=await sb.auth.updateUser({password:f.newpass});if(pe){if(username!==oldUsername)try{await sb.from("app_users").update({username:oldUsername||null}).eq("auth_user_id",state.user.id);}catch(_e){}return toast(errMsg(pe));}}
-    state.profile.username=username;$("#userText").textContent=username;closeModal();toast("Administrator login updated successfully. Use the new ID/password next time you sign in.");
-  };
+  openModal("Accounts Single Login",`<div class="info"><b>Marks Entry now uses the St. Augustine Accounts login.</b><br><br>No separate Marks Entry ID or password is required. Access is granted only after a valid Accountant Accounts session is verified. Marks/Result data remains in the separate Marks Supabase project.</div><div class="form-actions" style="margin-top:16px"><button type="button" class="btn primary" onclick="closeModal()">OK</button></div>`);
 }
 function v5GradingDialog(){openModal("Grading Scale",`<div class="section-title"><div><h3>Grading Scale</h3><p>Editable. Changes affect future calculations immediately.</p></div></div><div class="table-wrap"><table><thead><tr><th>Min %</th><th>Max %</th><th>Grade</th><th>Grade Point</th><th>Description</th><th>NG?</th><th></th></tr></thead><tbody>${state.grades.map(g=>`<tr><td>${num(g.min_percent)}</td><td>${num(g.max_percent)}</td><td>${esc(g.grade)}</td><td>${num(g.grade_point).toFixed(1)}</td><td>${esc(g.description||"")}</td><td>${g.is_ng?"Yes":"No"}</td><td><button class="btn small" onclick="gradeDialog(${g.id})">Edit</button></td></tr>`).join("")}</tbody></table></div>`);}
 
 async function renderBackup(){
-  $("#content").innerHTML=`<div class="section"><div class="section-title"><div><h3>Online Data Backup / Restore</h3><p>Create a complete Marks/Result JSON backup, or restore a previously downloaded backup.</p></div></div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn green" onclick="v5CreateBackup()">Create Backup Now</button><button class="btn primary" onclick="v11ChooseRestoreBackup()">Restore Backup</button><input id="v11RestoreFile" type="file" accept=".json,application/json" class="hidden"></div><div class="info" style="margin-top:14px"><strong>Restore safety:</strong> Restore replaces Marks/Result data in this Marks database only. It does not change the Accounts database and it does not restore/change the Administrator login password. Before restoring, keep a fresh backup of the current data.</div></div>`;
+  $("#content").innerHTML=`<div class="section"><div class="section-title"><div><h3>Online Data Backup / Restore</h3><p>Create a complete Marks/Result JSON backup, or restore a previously downloaded backup.</p></div></div><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn green" onclick="v5CreateBackup()">Create Backup Now</button><button class="btn primary" onclick="v11ChooseRestoreBackup()">Restore Backup</button><input id="v11RestoreFile" type="file" accept=".json,application/json" class="hidden"></div><div class="info" style="margin-top:14px"><strong>Restore safety:</strong> Restore replaces Marks/Result data in this Marks database only. It does not change the Accounts database or the Accounts single-login configuration. Before restoring, keep a fresh backup of the current data.</div></div>`;
   const f=$("#v11RestoreFile"); if(f)f.onchange=e=>v11RestoreBackupFile(e.currentTarget);
 }
 async function v5CreateBackup(){const tables=["settings","academic_years","exams","result_publications","students","subjects","class_settings","components","marks","grading_scale","import_profiles","import_logs"];const out={backup_version:2,created_at:new Date().toISOString(),project:"staugustine-marks-result",tables:{}};for(const t of tables){const {data,error}=await sb.from(t).select("*");if(error)return toast(`${t}: ${errMsg(error)}`);out.tables[t]=data||[];}const blob=new Blob([JSON.stringify(out,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`StAugustine_Marks_Backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);toast("Backup downloaded successfully.");}

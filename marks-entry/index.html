@@ -23,21 +23,15 @@
         <p class="features">Excel Student Import &nbsp; • &nbsp; Marks Ledger Import/Export<br>
         Manual Marks Entry &nbsp; • &nbsp; WGP &amp; GPA &nbsp; • &nbsp; Grade-Sheet PDF<br>
         Secure Online Database &nbsp; • &nbsp; Backup / Export</p>
-        <p class="data-note">Marks/Result data is stored in the separate Marks Supabase project and remains independent from Accounts.</p>
+        <p class="data-note">Marks/Result data remains in the separate Marks Supabase project.</p>
       </div>
     </div>
     <div class="login-form-panel">
       <div class="login-card">
-        <h2>Welcome Back</h2>
-        <p>Sign in to continue to Result System</p>
-        <form id="loginForm">
-          <label>Username / Email</label>
-          <input id="loginUser" autocomplete="username" required />
-          <label>Password</label>
-          <input id="loginPassword" type="password" autocomplete="current-password" required />
-          <button class="btn primary login-button" type="submit">LOGIN TO SOFTWARE</button>
-        </form>
-        <small>Secure administrator access • Login ID and password can be changed from Settings</small>
+        <h2>Checking Accounts Login...</h2>
+        <p id="ssoStatus">Verifying your secure St. Augustine Accounts session.</p>
+        <div id="ssoError" class="danger" style="margin-top:14px;display:none"></div>
+        <small>No separate Marks Entry ID or password is required.</small>
       </div>
     </div>
   </section>
@@ -55,7 +49,7 @@
         </div>
         <nav id="nav"></nav>
         <div class="side-bottom">
-          <button id="logoutBtn" class="signout-btn">Sign out</button>
+          <button id="logoutBtn" class="signout-btn">Back to Accounts</button>
           <small>Logged in: <span id="userText">admin</span></small>
         </div>
       </aside>
@@ -84,6 +78,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=32-3-fast-click-safety"></script>
+  <script src="app.js?v=accounts-sso-bridge-1"></script>
 </body>
 </html>
