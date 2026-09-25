@@ -883,7 +883,7 @@ async function ensureMarksSsoSession(){
 
   const {data:verifyData,error:verifyError}=await sb.auth.verifyOtp({
     token_hash:payload.token_hash,
-    type:"magiclink"
+    type:"email"
   });
   if(verifyError)fail(errMsg(verifyError));
   if(!verifyData?.user)fail("Marks session could not be created.");
