@@ -4790,3 +4790,143 @@ window.v17RenderSavedReceiptToWindow=v17RenderSavedReceiptToWindow;
   },true);
 })();
 /* ================== END V19.12 FAST-CLICK / STALE-RENDER SAFETY ================== */
+
+/* ============================================================
+   V21 — CEO / MD OPTIONAL MARKS + PAYROLL MODULE ACCESS
+   2026-09-25
+   ------------------------------------------------------------
+   Existing report permissions stay in user_report_permissions.
+   New module ticks stay in module_access_permissions.
+   Accountant always has full access.
+   ============================================================ */
+(function(){
+  const V21_MODULES={marksAccess:'marks_result',payrollAccess:'payroll'};
+  const V21_MARKS_URL='https://qoabnkbifgtsvupdeuco.supabase.co';
+  const V21_MARKS_PUBLISHABLE_KEY='sb_publishable_NoyssNnS7lRQZPLbSZ4LuA_6zHThlBz';
+  const V21_MARKS_ACCESS_SYNC=`${V21_MARKS_URL}/functions/v1/accounts-module-access-sync`;
+  const V21_MODULE_OPTIONS=[
+    ['marksAccess','Marks / Result Access'],
+    ['payrollAccess','Payroll / Salary Access']
+  ];
+
+  function v21SyncModuleLinks(){
+    const p=db.settings.permissions?.[session.role]||{};
+    const full=isAccountant();
+    const marks=$('#marksEntryLink');
+    const payroll=$('#payrollLink');
+    if(marks)marks.style.display=(full||!!p.marksAccess)?'':'none';
+    if(payroll)payroll.style.display=(full||!!p.payrollAccess)?'':'none';
+  }
+
+  async function v21SyncMarksViewerProfile(role,canView){
+    const {data:{session:authSession},error}=await sb.auth.getSession();
+    if(error)throw error;
+    if(!authSession?.access_token)throw new Error('Accountant login session is missing.');
+    const response=await fetch(V21_MARKS_ACCESS_SYNC,{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey':V21_MARKS_PUBLISHABLE_KEY,
+        'Authorization':`Bearer ${authSession.access_token}`
+      },
+      body:JSON.stringify({role,can_view:!!canView})
+    });
+    let payload={};
+    try{payload=await response.json();}catch(_e){}
+    if(!response.ok)throw new Error(payload?.error||`Marks access sync failed (${response.status}).`);
+    return payload;
+  }
+
+  const _v21LoadOnlinePermissions=loadOnlinePermissions;
+  loadOnlinePermissions=async function(authUserId,role){
+    await _v21LoadOnlinePermissions(authUserId,role);
+    if(role==='accountant')return;
+    db.settings.permissions[role]=db.settings.permissions[role]||{};
+    try{
+      const {data,error}=await sb.from('module_access_permissions')
+        .select('module_key,can_view')
+        .eq('auth_user_id',authUserId);
+      if(error)throw error;
+      db.settings.permissions[role].marksAccess=false;
+      db.settings.permissions[role].payrollAccess=false;
+      (data||[]).forEach(row=>{
+        if(row.module_key==='marks_result')db.settings.permissions[role].marksAccess=!!row.can_view;
+        if(row.module_key==='payroll')db.settings.permissions[role].payrollAccess=!!row.can_view;
+      });
+    }catch(e){
+      db.settings.permissions[role].marksAccess=false;
+      db.settings.permissions[role].payrollAccess=false;
+      console.warn('[V21] Module access table is not ready:',e?.message||e);
+    }
+  };
+  window.loadOnlinePermissions=loadOnlinePermissions;
+
+  const _v21OpenOnlineSession=openOnlineSession;
+  openOnlineSession=async function(user,expectedRole=null){
+    await _v21OpenOnlineSession(user,expectedRole);
+    v21SyncModuleLinks();
+  };
+  window.openOnlineSession=openOnlineSession;
+
+  renderAccess=function(){
+    if(!isAccountant())return unauthorized();
+    const options=[...PERMISSION_OPTIONS,...V21_MODULE_OPTIONS];
+    $('#content').innerHTML=`<div class="notice"><strong>Important:</strong> MD and CEO remain read-only. A checked item only grants viewing access; it never gives edit, payment, delete, publish, payroll processing, password, or configuration rights.</div><div class="permission-grid">${['md','ceo'].map(role=>`<div class="permission-card"><h4>${role==='md'?'Managing Director (MD)':'CEO'} — View Permissions</h4>${options.map(([key,label])=>`<div class="perm-row"><span>${label}${V21_MODULES[key]?' <small style="opacity:.65">(module)</small>':''}</span><label class="toggle"><input class="permCheck" data-role="${role}" data-key="${key}" type="checkbox" ${db.settings.permissions?.[role]?.[key]?'checked':''}></label></div>`).join('')}</div>`).join('')}</div>`;
+
+    $$('.permCheck').forEach(c=>c.onchange=async()=>{
+      const role=c.dataset.role,key=c.dataset.key;
+      try{
+        const {data:profile,error:pErr}=await sb.from('app_users')
+          .select('auth_user_id').eq('role',role).eq('active',true).maybeSingle();
+        if(pErr)throw pErr;
+        if(!profile?.auth_user_id)throw new Error('Role account not found.');
+
+        const moduleKey=V21_MODULES[key];
+        if(moduleKey){
+          const previous=!c.checked;
+          const saveModule=async value=>{
+            const {error}=await sb.from('module_access_permissions').upsert({
+              auth_user_id:profile.auth_user_id,
+              module_key:moduleKey,
+              can_view:!!value,
+              updated_at:new Date().toISOString(),
+              updated_by:session.authUserId||null
+            },{onConflict:'auth_user_id,module_key'});
+            if(error)throw error;
+          };
+          await saveModule(c.checked);
+          if(moduleKey==='marks_result'){
+            try{
+              await v21SyncMarksViewerProfile(role,c.checked);
+            }catch(syncError){
+              /* Keep central permission and Marks-side active state consistent. */
+              await saveModule(previous).catch(()=>{});
+              throw syncError;
+            }
+          }
+        }else{
+          const reportKey=V18_PERM_DB[key];
+          if(!reportKey)throw new Error('This permission is not mapped online yet.');
+          const {error}=await sb.from('user_report_permissions').upsert({
+            auth_user_id:profile.auth_user_id,
+            report_key:reportKey,
+            can_view:c.checked
+          },{onConflict:'auth_user_id,report_key'});
+          if(error)throw error;
+        }
+
+        db.settings.permissions[role]=db.settings.permissions[role]||{};
+        db.settings.permissions[role][key]=c.checked;
+        toast(`${roleName(role)} online access updated.`);
+      }catch(e){
+        c.checked=!c.checked;
+        toast('Access update failed: '+(e?.message||'Unknown error'));
+      }
+    });
+  };
+  window.renderAccess=renderAccess;
+
+  v21SyncModuleLinks();
+  window.v21SyncModuleLinks=v21SyncModuleLinks;
+})();
+/* ================== END V21 MODULE ACCESS ================== */
