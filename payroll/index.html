@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>St. Augustine Payroll & Salary Manager</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
   --bg:#eef4fb;--panel:#ffffff;--ink:#10233f;--muted:#6c7d93;--line:#dbe5ef;
@@ -145,13 +146,13 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
       <div class="brand-chip">● Secure Admin Access</div>
     </section>
     <section class="login-form">
-      <h2>Welcome back</h2>
-      <div class="sub">Sign in to open the payroll control center.</div>
-      <div class="login-field"><label>ADMIN ID</label><div class="login-input-wrap"><input id="loginUser" autocomplete="username" placeholder="Enter admin ID"><span class="eye">👤</span></div></div>
-      <div class="login-field"><label>PASSWORD</label><div class="login-input-wrap"><input id="loginPass" type="password" autocomplete="current-password" placeholder="Enter password"><button type="button" class="eye" onclick="togglePassword()">◉</button></div></div>
-      <button class="login-btn" onclick="doLogin()">Open Payroll Dashboard →</button>
-      <div id="loginError" class="login-error"></div>
-      <div class="login-foot">St. Augustine Academic Foundation · Payroll Administration</div>
+      <h2>Checking Accounts Login...</h2>
+      <div class="sub">Verifying your secure Accounts session. Payroll will open automatically.</div>
+      <div class="login-field" style="display:none"><label>ADMIN ID</label><div class="login-input-wrap"><input id="loginUser" autocomplete="username" placeholder="Enter admin ID"><span class="eye">👤</span></div></div>
+      <div class="login-field" style="display:none"><label>PASSWORD</label><div class="login-input-wrap"><input id="loginPass" type="password" autocomplete="current-password" placeholder="Enter password"><button type="button" class="eye" onclick="togglePassword()">◉</button></div></div>
+      <button class="login-btn" style="display:none" onclick="doLogin()">Open Payroll Dashboard →</button>
+      <div id="loginError" class="login-error">Checking secure access...</div>
+      <div class="login-foot">Single sign-on via St. Augustine Accounts</div>
     </section>
   </div>
 </div>
@@ -266,6 +267,25 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 
 <script>
 const DB_KEY='st_augustine_payroll_v2';
+
+/* SINGLE LOGIN — reuse the secure St. Augustine Accounts Supabase session. */
+const ACCOUNTS_SUPABASE_URL='https://hspsaglksnmhuqfuxccm.supabase.co';
+const ACCOUNTS_SUPABASE_PUBLISHABLE_KEY='sb_publishable_-byhdB5_dxkqQ0YXmC8yEQ_xDSWMbOp';
+const ACCOUNTS_AUTH_STORAGE_KEY='sa_accounts_supabase_session';
+const ACCOUNTANT_EMAIL='accountant@staugustine.edu.np';
+const accountsSb=window.supabase?.createClient(
+  ACCOUNTS_SUPABASE_URL,
+  ACCOUNTS_SUPABASE_PUBLISHABLE_KEY,
+  {
+    auth:{
+      persistSession:true,
+      storage:window.sessionStorage,
+      storageKey:ACCOUNTS_AUTH_STORAGE_KEY,
+      autoRefreshToken:true,
+      detectSessionInUrl:false
+    }
+  }
+);
 const NEPALI_MONTHS=['बैशाख','जेठ','असार','श्रावण','भदौ','असोज','कार्तिक','मंसिर','पौष','माघ','फागुन','चैत्र'];
 const defaultStaff=[
 ['STF001','SURESH RAI','Chief Executive Officer'],['STF002','SANJEEV RAI','Managing Director'],['STF003','JOSEPH SHANKER','Principal'],['STF004','RANJANA RAI','Vice Principal'],['STF005','SAGAR ADHIKARI','Payroll Department'],['STF006','ABHISHEK KALIKOTAY','Teacher'],['STF007','SUNYATA RAI','Teacher'],['STF008','SUSHMA RAI','Teacher'],['STF009','KRITIKA MAGAR','Teacher'],['STF010','AMISHA RAI','Teacher'],['STF011','SWASTIKA LIMBU','Teacher'],['STF012','SANJAYA RAI','Teacher'],['STF013','SUJATA RAI','Teacher'],['STF014','SHEKHAR KUMAR ACHARYA','Teacher'],['STF015','PADAM KARKI','Teacher'],['STF016','RUFINA PRADHAN','Teacher'],['STF017','LIZA RAI','Teacher'],['STF018','KALPANA RAI','Teacher'],['STF019','PUNITA RAI','Teacher'],['STF020','DEVI MAYA TAMANG','School Support Staff'],['STF021','LILA RAI','School Support Staff'],['STF022','SABINA LIMBU','School Support Staff'],['STF023','AMIT RAI','Driver'],['STF024','BHUPENDRA RAI','Driver']
@@ -295,10 +315,41 @@ function closeModal(id){document.getElementById(id).classList.remove('show')}
 function rowVal(id,field){let e=document.querySelector(`[data-id="${id}"][data-field="${field}"]`);return e?e.value:''}
 function isChecked(id){let e=document.querySelector(`.row-check[data-id="${id}"]`);return !!e?.checked}
 
-function togglePassword(){let p=document.getElementById('loginPass');p.type=p.type==='password'?'text':'password'}
-function doLogin(){let u=document.getElementById('loginUser').value.trim(),p=document.getElementById('loginPass').value;let ok=u===(db.settings.adminUser||'admin')&&p===(db.settings.adminPass||'admin');if(!ok){document.getElementById('loginError').textContent='Incorrect admin ID or password.';return}sessionStorage.setItem('st_aug_payroll_auth','1');document.getElementById('loginError').textContent='';showApp()}
+function togglePassword(){let p=document.getElementById('loginPass');if(p)p.type=p.type==='password'?'text':'password'}
+function doLogin(){window.location.href='../index.html'}
 function showApp(){document.getElementById('loginScreen').classList.add('hidden');document.getElementById('appRoot').classList.remove('hidden');init()}
-function logout(){sessionStorage.removeItem('st_aug_payroll_auth');document.getElementById('appRoot').classList.add('hidden');document.getElementById('loginScreen').classList.remove('hidden');document.getElementById('loginPass').value=''}
+async function logout(){
+  try{if(accountsSb)await accountsSb.auth.signOut()}catch(_err){}
+  sessionStorage.removeItem('st_aug_payroll_auth');
+  window.location.replace('../index.html');
+}
+async function verifyAccountsSession(){
+  const errBox=document.getElementById('loginError');
+  try{
+    if(!accountsSb)throw new Error('Secure login service is unavailable.');
+    const {data,error}=await accountsSb.auth.getSession();
+    if(error)throw error;
+    const session=data?.session;
+    const email=String(session?.user?.email||'').trim().toLowerCase();
+    if(!session?.user){
+      if(errBox)errBox.textContent='Accounts login required. Redirecting...';
+      window.location.replace('../index.html');
+      return;
+    }
+    if(email!==ACCOUNTANT_EMAIL){
+      if(errBox)errBox.textContent='Payroll access is limited to the Accountant. Redirecting...';
+      setTimeout(()=>window.location.replace('../index.html'),500);
+      return;
+    }
+    sessionStorage.setItem('st_aug_payroll_auth','accounts-sso');
+    if(errBox)errBox.textContent='';
+    showApp();
+  }catch(err){
+    console.error('Payroll SSO check failed:',err);
+    if(errBox)errBox.textContent='Unable to verify Accounts login. Redirecting...';
+    setTimeout(()=>window.location.replace('../index.html'),700);
+  }
+}
 document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});document.getElementById('loginUser').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginPass').focus()});
 
 function showSection(id){document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.navbtn').forEach(x=>x.classList.toggle('active',x.dataset.section===id));document.getElementById('appRoot').classList.toggle('payroll-mode',id==='payroll');document.getElementById('pageTitle').textContent={dashboard:'Dashboard',staff:'Staff Master',payroll:'Monthly Payroll',reports:'Reports',settings:'Settings',backup:'Backup & Restore'}[id];if(id==='dashboard')renderDashboard();if(id==='staff')renderStaff();if(id==='payroll'){renderPayroll();setTimeout(syncPayrollTopScroll,0);}if(id==='reports')renderReports();if(id==='settings')loadSettings()}
@@ -375,7 +426,7 @@ document.getElementById('dashYear').addEventListener('input',renderDashboard);do
 
 setupPayrollTopScroll();
 saveDB();
-if(sessionStorage.getItem('st_aug_payroll_auth')==='1')showApp();
+verifyAccountsSession();
 </script>
 </body>
 </html>
