@@ -177,7 +177,7 @@ async function init(){
   const {data:{session}}=await sb.auth.getSession();if(session?.user){try{await enterApp(session.user);}catch(e){console.error(e);await sb.auth.signOut();toast(errMsg(e));}}
 }
 window.studentDialog=studentDialog;window.deleteStudent=deleteStudent;window.subjectDialog=subjectDialog;window.deleteSubject=deleteSubject;window.componentDialog=componentDialog;window.deleteComponent=deleteComponent;window.closeModal=closeModal;window.setResultStatus=setResultStatus;window.printSingleResult=printSingleResult;window.printBulkResults=printBulkResults;window.yearDialog=yearDialog;window.activateYear=activateYear;window.examDialog=examDialog;window.deleteExam=deleteExam;window.gradeDialog=gradeDialog;window.state=state;
-init();
+/* V21: boot is intentionally moved to the end so role-aware SSO guards are installed first. */
 
 /* ============================================================
    ONLINE V2 — Excel import/export + Excel-style paste + robust Marks Entry
@@ -2664,3 +2664,252 @@ Object.assign(window,{refreshResults,v322ExportSelectedClassGradeDetails,v322Exp
 
 /* Build: v32.3 — fast-click/stale-render safety only. */
 
+
+
+/* ============================================================
+   V21 — ACCOUNTS-CONTROLLED CEO/MD READ-ONLY MARKS ACCESS
+   2026-09-25
+   ------------------------------------------------------------
+   Accountant: full existing Marks/Result administration.
+   CEO / MD: only Dashboard, Students and Result/Grade Sheets,
+   and only when Accounts > MD/CEO Access has Marks/Result ticked.
+   All viewer data writes remain blocked by Marks RLS (role=viewer).
+   ============================================================ */
+(function(){
+  const V21_ACCOUNTS_ROLE_BY_EMAIL={
+    'accountant@staugustine.edu.np':'accountant',
+    'ceo@staugustine.edu.np':'ceo',
+    'md@staugustine.edu.np':'md'
+  };
+  const V21_VIEW_PAGES=new Set(['dashboard','students','results']);
+
+  function v21AccountsRoleFromSession(session){
+    return V21_ACCOUNTS_ROLE_BY_EMAIL[String(session?.user?.email||'').trim().toLowerCase()]||'';
+  }
+  function v21RoleLabel(){
+    const r=String(state.accountsRole||'').toLowerCase();
+    if(r==='ceo')return 'CEO';
+    if(r==='md')return 'MANAGING DIRECTOR';
+    return 'ACCOUNTANT';
+  }
+
+  async function v21GetAccountsSession(){
+    const {data,error}=await accountsSb.auth.getSession();
+    if(error)throw error;
+    const session=data?.session;
+    if(!session?.user)throw new Error('Accounts login required.');
+    const role=v21AccountsRoleFromSession(session);
+    if(!role)throw new Error('This Accounts login is not permitted to use Marks / Result.');
+    return {session,role};
+  }
+
+  async function v21HasMarksPermission(session,role){
+    if(role==='accountant')return true;
+    const {data,error}=await accountsSb.from('module_access_permissions')
+      .select('can_view')
+      .eq('auth_user_id',session.user.id)
+      .eq('module_key','marks_result')
+      .eq('can_view',true)
+      .maybeSingle();
+    if(error)throw error;
+    return data?.can_view===true;
+  }
+
+  async function v21RequireMarksAccess({redirect=false}={}){
+    try{
+      const {session,role}=await v21GetAccountsSession();
+      if(!(await v21HasMarksPermission(session,role)))throw new Error('Marks / Result Access is not enabled by the Accountant.');
+      state.accountsRole=role;
+      return {session,role};
+    }catch(e){
+      if(redirect){
+        const box=$('#ssoError');
+        if(box){box.style.display='block';box.textContent=errMsg(e);}
+        setTimeout(()=>window.location.replace('../index.html'),650);
+      }
+      throw e;
+    }
+  }
+
+  /* Accept viewer profiles. Writes are still denied by database RLS. */
+  loadProfile=async function(){
+    const {data,error}=await sb.from('app_users')
+      .select('auth_user_id,username,display_name,role,active')
+      .eq('auth_user_id',state.user.id).single();
+    if(error)throw error;
+    if(!data?.active)throw new Error('Marks / Result Access is inactive for this account.');
+    const role=String(data?.role||'').toLowerCase();
+    if(!['admin','viewer'].includes(role))throw new Error('This Marks account is not authorized.');
+    state.profile=data;
+  };
+
+  /* Never reuse a previous person's Marks session. Accounts role is rechecked
+     and a fresh role-specific bridge session is created every time. */
+  ensureMarksSsoSession=async function(){
+    const status=$('#ssoStatus'),errBox=$('#ssoError');
+    const setStatus=msg=>{if(status)status.textContent=msg;};
+    const fail=msg=>{if(errBox){errBox.style.display='block';errBox.textContent=msg;}throw new Error(msg);};
+    try{
+      setStatus('Checking Accounts access…');
+      const {session,role}=await v21RequireMarksAccess();
+      state.accountsRole=role;
+
+      /* Marks project only; this does not sign out the Accounts session. */
+      try{await sb.auth.signOut();}catch(_e){}
+
+      setStatus(role==='accountant'?'Opening Marks administration…':'Opening read-only Marks / Result…');
+      const response=await fetch(MARKS_SSO_FUNCTION_URL,{
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'apikey':SUPABASE_PUBLISHABLE_KEY,
+          'Authorization':`Bearer ${session.access_token}`
+        },
+        body:'{}'
+      });
+      let payload={};
+      try{payload=await response.json();}catch(_e){}
+      if(!response.ok)fail(payload?.error||`Single-login bridge failed (${response.status}).`);
+      if(!payload?.token_hash)fail('Single-login bridge did not return a Marks token.');
+
+      const {data:verifyData,error:verifyError}=await sb.auth.verifyOtp({token_hash:payload.token_hash,type:'email'});
+      if(verifyError)fail(errMsg(verifyError));
+      if(!verifyData?.user)fail('Marks session could not be created.');
+      setStatus('Opening Marks / Result…');
+      return verifyData.user;
+    }catch(e){
+      if(String(e?.message||'').includes('Accounts login required')){
+        setStatus('Accounts login required. Redirecting…');
+        setTimeout(()=>window.location.replace('../index.html'),450);
+      }
+      throw e;
+    }
+  };
+
+  const v21AdminEnterApp=enterApp;
+  enterApp=async function(user){
+    await v21AdminEnterApp(user);
+    if(!isAdmin()){
+      const u=$('#userText');if(u)u.textContent=`${v21RoleLabel()} · READ ONLY`;
+      const sub=$('#pageSubtitle');if(sub&&state.page==='dashboard')sub.textContent='Marks / Result viewer — no data can be changed.';
+    }
+  };
+
+  /* Viewer calculations must never create missing term setup snapshots. */
+  const v21AdminEnsureExamSettings=v12EnsureExamSettings;
+  v12EnsureExamSettings=async function(examId,cls){
+    if(!isAdmin())return v12ResultLock(examId,cls);
+    return v21AdminEnsureExamSettings(examId,cls);
+  };
+
+  async function v21RenderViewerDashboard(){
+    await v21RequireMarksAccess({redirect:true});
+    const [c,exams]=await Promise.all([v5DashboardCounts(),examOptions()]);
+    const cards=[
+      ['TOTAL STUDENTS',c.total,'var(--blue)','Active students'],
+      ['BOYS',c.boys,'var(--green)','Gender summary'],
+      ['GIRLS',c.girls,'var(--purple)','Gender summary'],
+      ['ACTIVE CLASSES',c.classes,'var(--orange)','Classes with students']
+    ];
+    $('#content').innerHTML=`<div class="notice"><strong>${esc(v21RoleLabel())} · READ ONLY</strong> — You can view students, results, grade sheets and exports. Marks, setup, publication status and settings cannot be changed.</div><div class="dashboard-cards">${cards.map(([t,v,col,sub])=>`<div class="dash-card"><div class="tone" style="background:${col}"></div><div class="inside"><small>${t}</small><strong style="color:${col}">${v}</strong><small>${sub}</small></div></div>`).join('')}</div><div class="exam-title">${esc(currentYear()?.name||'')} Examination Results</div><div id="examDashboard" class="exam-grid"></div>`;
+    const host=$('#examDashboard'),colors=['var(--blue)','var(--purple)','var(--green)','var(--orange)'],html=[];
+    for(let i=0;i<exams.length;i++){
+      const e=exams[i],comp=await v5ExamCompletion(e.id),col=colors[i%colors.length];
+      html.push(`<div class="exam-card"><div class="topline" style="background:${col}"></div><div class="inside"><h3 style="color:${col}">${esc(e.exam_type||e.name)}</h3><p>${esc(e.name)}</p><small style="color:var(--muted)">Marks completion: ${comp.percent.toFixed(1)}%</small><div class="progress"><span style="width:${comp.percent}%;background:${col}"></span></div><div class="status-row"><span class="status-chip">${esc(e.status||'DRAFT')}</span><button class="btn" data-v21-exam="${e.id}">View Results</button></div></div></div>`);
+    }
+    host.innerHTML=html.join('')||`<div class="section"><div class="empty">No examinations configured.</div></div>`;
+    $$('[data-v21-exam]').forEach(b=>b.onclick=()=>{state.selectedExamId=num(b.dataset.v21Exam);navigate('results');});
+  }
+
+  let v21ViewerStudentRows=[];
+  function v21DrawViewerStudents(){
+    const cls=$('#v21StudentClass')?.value||'',q=String($('#v21StudentSearch')?.value||'').trim().toLowerCase();
+    let rows=v21ViewerStudentRows;
+    if(cls)rows=rows.filter(s=>s.class_name===cls);
+    if(q)rows=rows.filter(s=>[s.name,s.roll_no,s.symbol_no,s.registration_no,s.dob,s.gender].some(v=>String(v||'').toLowerCase().includes(q)));
+    const host=$('#v21StudentTable');if(!host)return;
+    host.innerHTML=rows.length?`<div class="table-wrap"><table><thead><tr><th>Class</th><th class="center">Roll</th><th>Student Name</th><th>Symbol No.</th><th>IEMIS ID</th><th>DOB</th><th>Gender</th></tr></thead><tbody>${rows.map(s=>`<tr><td>${esc(s.class_name||'')}</td><td class="center">${esc(s.roll_no||'')}</td><td><strong>${esc(s.name||'')}</strong></td><td>${esc(s.symbol_no||'')}</td><td>${esc(s.registration_no||'')}</td><td>${esc(s.dob||'')}</td><td>${esc(s.gender||'')}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">No students match this filter.</div>`;
+    const count=$('#v21StudentCount');if(count)count.textContent=`${rows.length} student(s)`;
+  }
+  async function v21RenderViewerStudents(){
+    await v21RequireMarksAccess({redirect:true});
+    $('#content').innerHTML=`<div class="master-toolbar"><div class="toolbar"><div class="field"><label>Class</label><select id="v21StudentClass"><option value="">All Classes</option>${CLASSES.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div><div class="field grow"><label>Search</label><input id="v21StudentSearch" placeholder="Name / roll / symbol / IEMIS ID"></div><span id="v21StudentCount" style="font-size:12px;color:var(--muted)"></span></div></div><div class="notice"><strong>READ ONLY:</strong> Student records cannot be added, edited, deleted or imported from this login.</div><div class="master-table-card"><div id="v21StudentTable"><div class="empty">Loading students…</div></div></div>`;
+    const {data,error}=await sb.from('students').select('id,class_name,roll_no,symbol_no,registration_no,name,dob,gender,active').eq('academic_year_id',state.yearId).eq('active',true);
+    if(error)throw error;
+    v21ViewerStudentRows=_studentRowsSorted(data||[]);
+    $('#v21StudentClass').onchange=v21DrawViewerStudents;
+    $('#v21StudentSearch').oninput=v21DrawViewerStudents;
+    v21DrawViewerStudents();
+  }
+
+  async function v21RefreshViewerResults(){
+    await v21RequireMarksAccess({redirect:true});
+    const examId=num($('#resExam')?.value),cls=$('#resClass')?.value;if(!examId)return;
+    state.selectedExamId=examId;
+    $('#resultsArea').innerHTML=`<div class="empty">Calculating read-only result…</div>`;
+    const [results,pubRes,examRes,completion]=await Promise.all([
+      calculateClassResults(examId,cls),
+      sb.from('result_publications').select('*').eq('exam_id',examId).eq('class_name',cls).maybeSingle(),
+      sb.from('exams').select('*').eq('id',examId).single(),
+      v8ClassCompletion(examId,cls)
+    ]);
+    if(pubRes.error)throw pubRes.error;if(examRes.error)throw examRes.error;
+    const pub=pubRes.data||{status:'DRAFT',publish_date_bs:''},exam=examRes.data;
+    const pass=results.filter(r=>r.status==='PASS').length,ng=results.filter(r=>r.status==='NG').length,inc=results.filter(r=>r.status==='INCOMPLETE').length;
+    state.resultContext={examId,cls,results,pub,exam,completion};
+    if($('#issueDate'))$('#issueDate').value=pub.publish_date_bs||exam.publish_date_bs||'';
+    const status=String(pub.status||'DRAFT').toUpperCase();
+    const color={DRAFT:['#EEF2F7','var(--navy2)'],CALCULATED:['#EAF2FF','var(--blue2)'],FINALIZED:['#FFF4E8','var(--orange)'],PUBLISHED:['#E9F8F2','var(--green)']}[status]||['#EEF2F7','var(--navy2)'];
+    const gradeExport=typeof v322ExportSelectedClassGradeDetails==='function'?`<button class="btn" id="v21GradeExport">Export Grade Details</button>`:'';
+    const marksExport=typeof v322ExportSelectedClassMarksDetails==='function'?`<button class="btn" id="v21MarksExport">Export Marks Details</button>`:'';
+    $('#resultsStatusHost').innerHTML=`<div class="result-status-card"><span class="result-status-badge" style="background:${color[0]};color:${color[1]}">${esc(status)}</span><span class="result-status-text">Marks ${completion.percent.toFixed(1)}% complete (${completion.entered}/${completion.expected}) • Students ${results.length} • Pass ${pass} • NG ${ng} • Incomplete ${inc}</span><div class="result-status-actions"><span id="resultSelectionCount" style="font-size:11px;color:var(--muted);margin-right:3px">0 selected</span>${gradeExport}${marksExport}<button class="btn" onclick="v5ExportResultsExcel()">Export Result Excel</button><button class="btn" onclick="selectAllResultStudents(true)">Select All</button><button class="btn" onclick="selectAllResultStudents(false)">Clear</button><button class="btn green" onclick="downloadBulkResultsPdf()">Download Bulk PDF</button><button class="btn" onclick="printBulkResults()">Bulk Print</button></div></div>`;
+    $('#resultsArea').innerHTML=`${!results.length?`<div class="notice">No active students were found in ${esc(cls)}.</div>`:''}${inc?`<div class="notice">${inc} student result(s) are incomplete. This login can view only; the Accountant controls marks and result status.</div>`:''}<div class="table-wrap"><table><thead><tr><th class="center" style="width:38px"><input id="resultSelectAll" type="checkbox" aria-label="Select all students"></th><th class="center">Roll</th><th>Student Name</th><th class="center">IEMIS ID</th><th class="center">Total Credit</th><th class="center">Total WGP</th><th class="center">GPA</th><th class="center">Result</th><th class="center">Preview</th></tr></thead><tbody>${results.map(r=>`<tr><td class="center"><input class="result-student-check" type="checkbox" value="${r.student.id}" aria-label="Select ${esc(r.student.name)}"></td><td class="center">${esc(r.student.roll_no||'')}</td><td>${esc(r.student.name)}</td><td class="center">${esc(r.student.registration_no||'')}</td><td class="center">${creditFmt(r.total_credit)}</td><td class="center">${num(r.total_wgp).toFixed(2)}</td><td class="center">${esc(r.gpa_display)}</td><td class="center">${esc(r.status)}</td><td class="center"><button class="btn small" onclick="printSingleResult(${r.student.id})">Preview / Print</button></td></tr>`).join('')}</tbody></table></div>`;
+    const all=$('#resultSelectAll');if(all)all.onchange=e=>selectAllResultStudents(!!e.currentTarget.checked);
+    $$('.result-student-check').forEach(x=>x.onchange=updateResultSelectionState);
+    if($('#v21GradeExport'))$('#v21GradeExport').onclick=v322ExportSelectedClassGradeDetails;
+    if($('#v21MarksExport'))$('#v21MarksExport').onclick=v322ExportSelectedClassMarksDetails;
+    updateResultSelectionState();
+  }
+
+  async function v21RenderViewerResults(){
+    await v21RequireMarksAccess({redirect:true});
+    const exams=await examOptions();
+    const chosen=num(state.selectedExamId)||num(exams[0]?.id);
+    $('#content').innerHTML=`<div class="notice"><strong>${esc(v21RoleLabel())} · READ ONLY</strong> — Result status, marks and term setup cannot be changed. Preview, print and export are available.</div><div class="master-toolbar"><div class="toolbar"><div class="field" style="min-width:300px"><label>Examination</label><select id="resExam">${exams.map(e=>`<option value="${e.id}" ${num(e.id)===chosen?'selected':''}>${esc(e.name)}</option>`).join('')}</select></div><div class="field"><label>Class</label><select id="resClass">${classOptions('Class 1')}</select></div><div class="field"><label>Date of Issue (B.S.)</label><input id="issueDate" readonly></div><button class="btn primary" id="loadResultsBtn">Refresh Results</button></div></div><div id="resultsStatusHost"></div><div class="master-table-card"><div id="resultsArea"><div class="empty">Select exam and class to preview results.</div></div></div>`;
+    $('#loadResultsBtn').onclick=v21RefreshViewerResults;
+    $('#resExam').onchange=v21RefreshViewerResults;
+    $('#resClass').onchange=v21RefreshViewerResults;
+    await v21RefreshViewerResults();
+  }
+
+  const v21AdminRenderNav=renderNav;
+  renderNav=function(){
+    if(isAdmin())return v21AdminRenderNav();
+    const items=[['dashboard','Dashboard'],['students','Students'],['results','Results / Grade Sheets']];
+    $('#nav').innerHTML=items.map(([p,l])=>`<button class="nav-btn ${state.page===p?'active':''}" data-page="${p}">${l}</button>`).join('');
+    $$('.nav-btn').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
+  };
+
+  const v21AdminNavigate=navigate;
+  navigate=async function(page){
+    if(isAdmin())return v21AdminNavigate(page);
+    let target=String(page||'dashboard');if(!V21_VIEW_PAGES.has(target))target='dashboard';
+    try{await v21RequireMarksAccess({redirect:true});}catch(_e){return;}
+    state.page=target;renderNav();
+    const titleMap={dashboard:['Dashboard','Read-only Marks / Result overview'],students:['Students','Read-only student directory'],results:['Results / Grade Sheets','Read-only result details, grade sheets and exports']};
+    const meta=titleMap[target]||titleMap.dashboard;
+    $('#pageTitle').textContent=meta[0];$('#pageSubtitle').textContent=meta[1];setPageActions('');
+    const host=$('#content');if(host)host.innerHTML=`<div class="section"><div class="empty">Loading…</div></div>`;
+    try{
+      if(target==='students')await v21RenderViewerStudents();
+      else if(target==='results')await v21RenderViewerResults();
+      else await v21RenderViewerDashboard();
+    }catch(e){console.error(e);if(host)host.innerHTML=`<div class="danger">${esc(errMsg(e))}</div>`;}
+  };
+
+  Object.assign(window,{loadProfile,ensureMarksSsoSession,enterApp,v12EnsureExamSettings,renderNav,navigate});
+})();
+/* ================== END V21 MARKS VIEWER ACCESS ================== */
+
+/* V21 boot — role-aware SSO is now installed before initialization. */
+init();
