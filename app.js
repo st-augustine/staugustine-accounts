@@ -4930,3 +4930,59 @@ window.v17RenderSavedReceiptToWindow=v17RenderSavedReceiptToWindow;
   window.v21SyncModuleLinks=v21SyncModuleLinks;
 })();
 /* ================== END V21 MODULE ACCESS ================== */
+
+/* ================== V22 ACCOUNTANT OWN PASSWORD FIX ==================
+   Online Supabase Auth is authoritative. Re-enable the Accountant's own
+   password form that an older migration safety patch had disabled.
+   CEO/MD reset remains handled by the secure Edge Function from V20.
+   =================================================================== */
+(()=>{
+  const _v22RenderSettingsBase=renderSettings;
+  renderSettings=function(){
+    _v22RenderSettingsBase();
+    if(!isAccountant())return;
+
+    const own=$('#changeOwn');
+    if(!own)return;
+
+    own.querySelectorAll('input,button').forEach(el=>{el.disabled=false;});
+
+    own.onsubmit=async e=>{
+      e.preventDefault();
+      const fd=new FormData(own);
+      const current=String(fd.get('current')||'');
+      const next=String(fd.get('next')||'');
+      const confirmPassword=String(fd.get('confirm')||'');
+
+      if(next!==confirmPassword)return toast('New passwords do not match.');
+      if(next.length<6)return toast('Use at least 6 characters for the new password.');
+      if(!current)return toast('Enter your current password.');
+
+      const btn=own.querySelector('button[type="submit"],button');
+      const oldText=btn?.textContent||'Change & Logout';
+      if(btn){btn.disabled=true;btn.textContent='Changing…';}
+
+      try{
+        const {data:{user},error:userError}=await sb.auth.getUser();
+        if(userError)throw userError;
+        const email=String(user?.email||'').trim().toLowerCase();
+        if(email!==ACCOUNT_EMAILS.accountant)throw new Error('Accountant login is required.');
+
+        const {error:reauthError}=await sb.auth.signInWithPassword({email,password:current});
+        if(reauthError)throw new Error('Current password is incorrect.');
+
+        const {error:updateError}=await sb.auth.updateUser({password:next});
+        if(updateError)throw updateError;
+
+        own.reset();
+        await logout('Accountant password changed. Please login with the new password.');
+      }catch(err){
+        console.error('Accountant password change failed:',err);
+        toast(err?.message||'Password change failed.');
+        if(btn){btn.disabled=false;btn.textContent=oldText;}
+      }
+    };
+  };
+  window.renderSettings=renderSettings;
+})();
+/* ================ END V22 ACCOUNTANT OWN PASSWORD FIX ================ */
