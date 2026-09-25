@@ -233,13 +233,13 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 </section>
 
 <section id="settings" class="section">
-  <div class="section-head"><div><h3>School & Payroll Settings</h3><p>Settings used in salary calculation, login, reports and slips.</p></div></div>
+  <div class="section-head"><div><h3>School & Payroll Settings</h3><p>Settings used in salary calculation, reports and slips.</p></div></div>
   <div class="grid two">
     <div class="card"><h4 class="panel-title">School Information</h4><div class="form-grid"><div class="field wide"><label>School Name</label><input id="setSchoolName" class="input"></div><div class="field wide"><label>Address</label><input id="setAddress" class="input"></div><div class="field"><label>Phone</label><input id="setPhone" class="input"></div><div class="field"><label>PAN</label><input id="setPan" class="input"></div></div></div>
     <div class="card"><h4 class="panel-title">Calculation Defaults</h4><div class="form-grid"><div class="field"><label>Working Days / Month</label><input id="setWorkingDays" class="input" type="number" min="1" max="31"></div><div class="field"><label>Default Tax %</label><input id="setTaxPct" class="input" type="number" min="0" max="100" step="0.01"></div><div class="field"><label>Currency Label</label><input id="setCurrency" class="input" placeholder="Rs."></div><div class="field"><label>Default Nepali Year</label><input id="setNepaliYear" class="input" type="number" min="2000" max="2200"></div><div class="field wide"><label>Absent Deduction Method</label><select id="setAbsentMethod"><option value="auto">Auto: Basic ÷ Working Days × Absent Days</option><option value="manual">Manual exact deduction amount</option></select></div></div></div>
   </div>
   <div class="grid two" style="margin-top:16px">
-    <div class="card"><h4 class="panel-title">Admin Login</h4><div class="form-grid"><div class="field"><label>Admin ID</label><input id="setAdminUser" class="input"></div><div class="field"><label>Admin Password</label><input id="setAdminPass" class="input" type="password"></div></div><div class="note" style="margin-top:12px">Default login is <b>admin / admin</b>. You may change it here later.<br><br><b>Login Photo:</b> keep your photo in the same folder as this HTML and name it <b>st_augustine_payroll_photo.jpg</b>.</div></div>
+    <div class="card"><h4 class="panel-title">Cloud Access</h4><div class="note"><b>Single Login:</b> Payroll uses the secure St. Augustine Accounts Supabase session. Only the Accountant account can open Payroll.<br><br><b>Cloud Data:</b> Staff, settings and monthly payroll records are saved automatically to Supabase. The browser copy is only a local cache/fallback.</div></div>
     <div class="card"><h4 class="panel-title">Tax Rule</h4><div class="note">Auto Tax = <b>(Gross Salary − SSF/SSI) × Tax %</b>, then the tax is rounded <b>up to the next whole rupee</b>. Example: Rs. 360 stays Rs. 360; Rs. 111.01 / 111.50 becomes Rs. 112. Manual tax is also saved as a whole rupee.</div></div>
   </div>
   <div style="margin-top:16px"><button class="btn primary" onclick="saveSettings()">Save Settings</button></div>
@@ -273,6 +273,7 @@ const ACCOUNTS_SUPABASE_URL='https://hspsaglksnmhuqfuxccm.supabase.co';
 const ACCOUNTS_SUPABASE_PUBLISHABLE_KEY='sb_publishable_-byhdB5_dxkqQ0YXmC8yEQ_xDSWMbOp';
 const ACCOUNTS_AUTH_STORAGE_KEY='sa_accounts_supabase_session';
 const ACCOUNTANT_EMAIL='accountant@staugustine.edu.np';
+const PAYROLL_CLOUD_TABLE='payroll_app_state';
 const accountsSb=window.supabase?.createClient(
   ACCOUNTS_SUPABASE_URL,
   ACCOUNTS_SUPABASE_PUBLISHABLE_KEY,
@@ -301,9 +302,82 @@ function roundTax(v){let x=Math.max(0,n(v));return Math.round(x)}
 function esc(s){return String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 function fmt(v){return `${db.settings.currency||'Rs.'} ${n(v).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:2})}`}
 function csvCell(v){let s=String(v??'').replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ');return '"'+s.replace(/"/g,'""')+'"'}
-function defaultDB(){return {settings:{schoolName:'St. Augustine Academic Foundation',address:'Suryodaya-11, Ilam, Nepal',phone:'',pan:'',workingDays:30,currency:'Rs.',absentMethod:'auto',defaultTaxPct:1,defaultNepaliYear:2083,adminUser:'admin',adminPass:'admin'},staff:defaultStaff.map(s=>({id:cryptoId(),code:s[0],name:s[1],role:s[2],active:true,basic:0,taxPct:1,ssf:0,otherDed:0,defaultAllowance:0,createdAt:new Date().toISOString()})),payroll:[]}}
-function loadDB(){let x=null;try{x=JSON.parse(localStorage.getItem(DB_KEY))}catch(e){}if(!x||!x.staff||!x.payroll||!x.settings)x=defaultDB();x.settings={...defaultDB().settings,...x.settings};x.staff=(x.staff||[]).map(s=>({...s,basic:n(s.basic),taxPct:s.taxPct??x.settings.defaultTaxPct,ssf:n(s.ssf),otherDed:n(s.otherDed),defaultAllowance:n(s.defaultAllowance)}));x.payroll=(x.payroll||[]).map(r=>({...r,taxAmount:roundTax(r.taxAmount),provided:!!r.provided,providedAt:r.providedAt||'',providedLabel:r.providedLabel||'',taxMode:r.taxMode||'auto',paymentMode:r.paymentMode||'Cash',status:r.status||'Pending',allowances:Array.isArray(r.allowances)?r.allowances:[]}));return x}
-function saveDB(){localStorage.setItem(DB_KEY,JSON.stringify(db))}
+function defaultDB(){return {settings:{schoolName:'St. Augustine Academic Foundation',address:'Suryodaya-11, Ilam, Nepal',phone:'',pan:'',workingDays:30,currency:'Rs.',absentMethod:'auto',defaultTaxPct:1,defaultNepaliYear:2083},staff:defaultStaff.map(s=>({id:cryptoId(),code:s[0],name:s[1],role:s[2],active:true,basic:0,taxPct:1,ssf:0,otherDed:0,defaultAllowance:0,createdAt:new Date().toISOString()})),payroll:[]}}
+function normalizeDB(x){
+  if(!x||!Array.isArray(x.staff)||!Array.isArray(x.payroll)||!x.settings)x=defaultDB();
+  x={...x,settings:{...defaultDB().settings,...(x.settings||{})},staff:[...(x.staff||[])],payroll:[...(x.payroll||[])]};
+  delete x.settings.adminUser;
+  delete x.settings.adminPass;
+  x.staff=x.staff.map(s=>({...s,basic:n(s.basic),taxPct:s.taxPct??x.settings.defaultTaxPct,ssf:n(s.ssf),otherDed:n(s.otherDed),defaultAllowance:n(s.defaultAllowance)}));
+  x.payroll=x.payroll.map(r=>({...r,taxAmount:roundTax(r.taxAmount),provided:!!r.provided,providedAt:r.providedAt||'',providedLabel:r.providedLabel||'',taxMode:r.taxMode||'auto',paymentMode:r.paymentMode||'Cash',status:r.status||'Pending',allowances:Array.isArray(r.allowances)?r.allowances:[]}));
+  return x
+}
+function loadDB(){
+  let x=null;
+  try{x=JSON.parse(localStorage.getItem(DB_KEY))}catch(e){}
+  return normalizeDB(x)
+}
+function saveLocalCache(snapshot=db){
+  try{localStorage.setItem(DB_KEY,JSON.stringify(snapshot))}catch(_err){}
+}
+function cloudSafeSnapshot(){
+  const snapshot=JSON.parse(JSON.stringify(db));
+  snapshot.settings=snapshot.settings||{};
+  delete snapshot.settings.adminUser;
+  delete snapshot.settings.adminPass;
+  return snapshot
+}
+let cloudReady=false;
+let cloudSaveQueue=Promise.resolve();
+let lastCloudSaveError='';
+async function writeCloudSnapshot(snapshot){
+  const {data:sessionData,error:sessionError}=await accountsSb.auth.getSession();
+  if(sessionError)throw sessionError;
+  const user=sessionData?.session?.user;
+  if(!user)throw new Error('Accounts session expired.');
+  const {error}=await accountsSb.from(PAYROLL_CLOUD_TABLE).upsert({
+    id:1,
+    state_json:snapshot,
+    updated_at:new Date().toISOString(),
+    updated_by:user.id
+  },{onConflict:'id'});
+  if(error)throw error;
+  lastCloudSaveError=''
+}
+function queueCloudSave(snapshot){
+  cloudSaveQueue=cloudSaveQueue
+    .then(()=>writeCloudSnapshot(snapshot))
+    .catch(err=>{
+      console.error('Payroll cloud save failed:',err);
+      lastCloudSaveError=err?.message||String(err);
+      try{showToast('Cloud save failed. Local cache kept; check internet/Supabase.')}catch(_err){}
+    });
+  return cloudSaveQueue
+}
+function saveDB(){
+  const snapshot=cloudSafeSnapshot();
+  saveLocalCache(snapshot);
+  if(cloudReady)queueCloudSave(snapshot)
+}
+async function loadCloudDB(){
+  const {data,error}=await accountsSb
+    .from(PAYROLL_CLOUD_TABLE)
+    .select('state_json,updated_at')
+    .eq('id',1)
+    .maybeSingle();
+  if(error)throw error;
+  if(data?.state_json&&Array.isArray(data.state_json.staff)&&Array.isArray(data.state_json.payroll)){
+    db=normalizeDB(data.state_json);
+    saveLocalCache(db);
+    return {source:'cloud',migrated:false}
+  }
+  // First cloud run: migrate the browser's existing restored Payroll data.
+  db=normalizeDB(loadDB());
+  cloudReady=true;
+  await writeCloudSnapshot(cloudSafeSnapshot());
+  saveLocalCache(db);
+  return {source:'local-migrated',migrated:true}
+}
 function periodKey(year,month){return `${Number(year)}-${String(Number(month)).padStart(2,'0')}`}
 function splitPeriod(key){let [y,m]=String(key||'').split('-').map(Number);return {year:y||db.settings.defaultNepaliYear||2083,month:m||1}}
 function periodLabel(key){let p=splitPeriod(key);return `${p.year} ${NEPALI_MONTHS[p.month-1]||''}`}
@@ -342,12 +416,18 @@ async function verifyAccountsSession(){
       return;
     }
     sessionStorage.setItem('st_aug_payroll_auth','accounts-sso');
+    if(errBox)errBox.textContent='Loading Payroll cloud data...';
+    const cloudResult=await loadCloudDB();
+    cloudReady=true;
     if(errBox)errBox.textContent='';
     showApp();
+    if(cloudResult?.migrated)setTimeout(()=>showToast('Existing Payroll data migrated to Supabase cloud.'),350);
   }catch(err){
-    console.error('Payroll SSO check failed:',err);
-    if(errBox)errBox.textContent='Unable to verify Accounts login. Redirecting...';
-    setTimeout(()=>window.location.replace('../index.html'),700);
+    console.error('Payroll SSO / cloud check failed:',err);
+    const msg=String(err?.message||err||'');
+    if(errBox)errBox.textContent=msg.toLowerCase().includes('payroll_app_state')||msg.toLowerCase().includes('schema cache')
+      ? 'Payroll cloud table is not ready. Run the supplied Supabase SQL, then refresh.'
+      : 'Unable to verify Accounts / Payroll cloud access. Check internet and Supabase setup.';
   }
 }
 document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});document.getElementById('loginUser').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginPass').focus()});
@@ -413,11 +493,11 @@ function setupPayrollTopScroll(){
   setTimeout(syncPayrollTopScroll,0);
 }
 
-function loadSettings(){let s=db.settings;document.getElementById('setSchoolName').value=s.schoolName||'';document.getElementById('setAddress').value=s.address||'';document.getElementById('setPhone').value=s.phone||'';document.getElementById('setPan').value=s.pan||'';document.getElementById('setWorkingDays').value=s.workingDays||30;document.getElementById('setTaxPct').value=s.defaultTaxPct??1;document.getElementById('setCurrency').value=s.currency||'Rs.';document.getElementById('setNepaliYear').value=s.defaultNepaliYear||2083;document.getElementById('setAbsentMethod').value=s.absentMethod||'auto';document.getElementById('setAdminUser').value=s.adminUser||'admin';document.getElementById('setAdminPass').value=s.adminPass||'admin'}
-function saveSettings(){db.settings={...db.settings,schoolName:document.getElementById('setSchoolName').value.trim()||'St. Augustine Academic Foundation',address:document.getElementById('setAddress').value.trim(),phone:document.getElementById('setPhone').value.trim(),pan:document.getElementById('setPan').value.trim(),workingDays:n(document.getElementById('setWorkingDays').value)||30,defaultTaxPct:n(document.getElementById('setTaxPct').value),currency:document.getElementById('setCurrency').value.trim()||'Rs.',defaultNepaliYear:n(document.getElementById('setNepaliYear').value)||2083,absentMethod:document.getElementById('setAbsentMethod').value,adminUser:document.getElementById('setAdminUser').value.trim()||'admin',adminPass:document.getElementById('setAdminPass').value||'admin'};saveDB();syncHeader();showToast('Settings saved.')}
+function loadSettings(){let s=db.settings;document.getElementById('setSchoolName').value=s.schoolName||'';document.getElementById('setAddress').value=s.address||'';document.getElementById('setPhone').value=s.phone||'';document.getElementById('setPan').value=s.pan||'';document.getElementById('setWorkingDays').value=s.workingDays||30;document.getElementById('setTaxPct').value=s.defaultTaxPct??1;document.getElementById('setCurrency').value=s.currency||'Rs.';document.getElementById('setNepaliYear').value=s.defaultNepaliYear||2083;document.getElementById('setAbsentMethod').value=s.absentMethod||'auto'}
+function saveSettings(){db.settings={...db.settings,schoolName:document.getElementById('setSchoolName').value.trim()||'St. Augustine Academic Foundation',address:document.getElementById('setAddress').value.trim(),phone:document.getElementById('setPhone').value.trim(),pan:document.getElementById('setPan').value.trim(),workingDays:n(document.getElementById('setWorkingDays').value)||30,defaultTaxPct:n(document.getElementById('setTaxPct').value),currency:document.getElementById('setCurrency').value.trim()||'Rs.',defaultNepaliYear:n(document.getElementById('setNepaliYear').value)||2083,absentMethod:document.getElementById('setAbsentMethod').value};delete db.settings.adminUser;delete db.settings.adminPass;saveDB();syncHeader();showToast('Settings saved to Supabase cloud.')}
 function exportBackup(){let blob=new Blob([JSON.stringify({...db,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`St_Augustine_Payroll_Backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);showToast('Backup downloaded.')}
-function restoreBackup(){let f=document.getElementById('restoreFile').files[0];if(!f){showToast('Select a backup file first.');return}let rd=new FileReader();rd.onload=()=>{try{let x=JSON.parse(rd.result);if(!x.staff||!x.payroll||!x.settings)throw new Error();if(!confirm('Restore this backup and replace current payroll data?'))return;db={settings:{...defaultDB().settings,...x.settings},staff:x.staff,payroll:x.payroll.map(r=>({...r,provided:!!r.provided}))};saveDB();init();showToast('Backup restored.')}catch(e){showToast('Invalid backup file.')}};rd.readAsText(f)}
-function resetAllData(){if(!confirm('Reset payroll data completely? This cannot be undone without a backup.'))return;localStorage.removeItem(DB_KEY);db=defaultDB();saveDB();init();showToast('Payroll system reset.')}
+function restoreBackup(){let f=document.getElementById('restoreFile').files[0];if(!f){showToast('Select a backup file first.');return}let rd=new FileReader();rd.onload=()=>{try{let x=JSON.parse(rd.result);if(!x.staff||!x.payroll||!x.settings)throw new Error();if(!confirm('Restore this backup and replace current payroll data?'))return;db=normalizeDB({settings:x.settings,staff:x.staff,payroll:x.payroll});saveDB();init();showToast('Backup restored and saved to Supabase cloud.')}catch(e){showToast('Invalid backup file.')}};rd.readAsText(f)}
+function resetAllData(){if(!confirm('Reset payroll data completely? This will replace the Supabase cloud Payroll data too. Export a backup first.'))return;localStorage.removeItem(DB_KEY);db=defaultDB();saveDB();init();showToast('Payroll system reset in cloud and local cache.')}
 function syncHeader(){document.getElementById('schoolTop').textContent=db.settings.schoolName;document.getElementById('todayText').textContent='Nepali payroll period is selected manually'}
 function syncPeriod(from,to){document.getElementById(to+'Year').value=document.getElementById(from+'Year').value;document.getElementById(to+'Month').value=document.getElementById(from+'Month').value}
 function init(){['dashMonth','payMonth','reportMonth'].forEach(populateMonthSelect);let y=db.settings.defaultNepaliYear||2083;['dashYear','payYear','reportYear'].forEach(id=>{if(!document.getElementById(id).value)document.getElementById(id).value=y});['dashMonth','payMonth','reportMonth'].forEach(id=>{if(!document.getElementById(id).value)document.getElementById(id).value=5});syncHeader();renderStaff();renderPayroll();renderDashboard();renderReports();loadSettings()}
@@ -425,7 +505,6 @@ function init(){['dashMonth','payMonth','reportMonth'].forEach(populateMonthSele
 document.getElementById('dashYear').addEventListener('input',renderDashboard);document.getElementById('dashMonth').addEventListener('change',renderDashboard);document.getElementById('payYear').addEventListener('input',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('payMonth').addEventListener('change',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('staffSearch').addEventListener('input',renderStaff);document.getElementById('staffStatusFilter').addEventListener('change',renderStaff);document.getElementById('reportYear').addEventListener('input',renderReports);document.getElementById('reportMonth').addEventListener('change',renderReports);document.getElementById('reportStaff').addEventListener('change',renderReports);document.getElementById('historyMonths').addEventListener('change',renderReports);document.getElementById('reportStatus').addEventListener('change',renderReports);document.getElementById('reportTabs').addEventListener('click',e=>{let b=e.target.closest('.report-tab');if(!b)return;currentReportType=b.dataset.type;document.querySelectorAll('.report-tab').forEach(x=>x.classList.toggle('active',x===b));renderReports()});window.addEventListener('click',e=>{if(e.target.classList.contains('modal'))e.target.classList.remove('show')});
 
 setupPayrollTopScroll();
-saveDB();
 verifyAccountsSession();
 </script>
 </body>
