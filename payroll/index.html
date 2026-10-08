@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>St. Augustine Payroll & Salary Manager</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/nepali-date-converter@3.4.0/dist/nepali-date-converter.umd.js"></script>
+<!-- Prefer the primary converter; use an independent CDN if it fails. -->
+<script src="https://cdn.jsdelivr.net/npm/nepali-date-converter@3.4.0/dist/nepali-date-converter.umd.js" onerror="window.__nepaliDatePrimaryFailed=true"></script>
+<script>if(typeof NepaliDate==='undefined')document.write('<script src="https://unpkg.com/nepali-date-converter@3.4.0/dist/nepali-date-converter.umd.js"><\/script>');</script>
 <style>
 :root{
   --bg:#eef4fb;--panel:#ffffff;--ink:#10233f;--muted:#6c7d93;--line:#dbe5ef;
@@ -253,6 +255,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
  <div class="field"><label>नेपाली साल</label><input id="bharpaiYear" class="input" type="number" min="2000" max="2200"></div>
  <div class="field"><label>तलब महिना</label><select id="bharpaiMonth"></select></div>
  <div class="field grow"><label>कर्मचारी</label><select id="bharpaiStaff"><option value="">सबै कर्मचारी</option></select></div>
+ <div class="field"><label>मिति (BS) — सेवा नचलेमा मात्र</label><input id="bharpaiManualDate" class="input" placeholder="२०८३/०६/२२" inputmode="text" title="स्वचालित मिति नआएमा मात्र आजको प्रमाणित नेपाली मिति प्रविष्ट गर्नुहोस्।"></div>
  <button class="btn primary" onclick="renderBharpai()">हेर्नुहोस्</button>
  <button class="btn ok" onclick="printBharpai()">Print A5</button>
  </div></div>
@@ -560,7 +563,7 @@ function syncHeader(){document.getElementById('schoolTop').textContent=db.settin
 function syncPeriod(from,to){document.getElementById(to+'Year').value=document.getElementById(from+'Year').value;document.getElementById(to+'Month').value=document.getElementById(from+'Month').value}
 function init(){['dashMonth','payMonth','reportMonth','bharpaiMonth'].forEach(populateMonthSelect);let y=db.settings.defaultNepaliYear||2083;['dashYear','payYear','reportYear','bharpaiYear'].forEach(id=>{if(!document.getElementById(id).value)document.getElementById(id).value=y});['dashMonth','payMonth','reportMonth','bharpaiMonth'].forEach(id=>{if(!document.getElementById(id).value)document.getElementById(id).value=5});syncHeader();renderStaff();renderPayroll();renderDashboard();renderReports();renderBharpai();loadSettings()}
 
-document.getElementById('dashYear').addEventListener('input',renderDashboard);document.getElementById('dashMonth').addEventListener('change',renderDashboard);document.getElementById('payYear').addEventListener('input',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('payMonth').addEventListener('change',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('staffSearch').addEventListener('input',renderStaff);document.getElementById('staffStatusFilter').addEventListener('change',renderStaff);document.getElementById('bharpaiYear').addEventListener('input',renderBharpai);document.getElementById('bharpaiMonth').addEventListener('change',renderBharpai);document.getElementById('bharpaiStaff').addEventListener('change',renderBharpai);document.getElementById('setBharpaiLogo').addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;if(payrollReadOnly)return denyPayrollWrite();if(f.size>120000){showToast('Logo must be below 120 KB.');e.target.value='';return}const reader=new FileReader();reader.onload=()=>{db.settings.bharpaiLogo=String(reader.result||'');saveDB();showToast('Logo saved.');};reader.readAsDataURL(f)});document.getElementById('reportYear').addEventListener('input',renderReports);document.getElementById('reportMonth').addEventListener('change',renderReports);document.getElementById('reportStaff').addEventListener('change',renderReports);document.getElementById('historyMonths').addEventListener('change',renderReports);document.getElementById('reportStatus').addEventListener('change',renderReports);document.getElementById('reportTabs').addEventListener('click',e=>{let b=e.target.closest('.report-tab');if(!b)return;currentReportType=b.dataset.type;document.querySelectorAll('.report-tab').forEach(x=>x.classList.toggle('active',x===b));renderReports()});window.addEventListener('click',e=>{if(e.target.classList.contains('modal'))e.target.classList.remove('show')});
+document.getElementById('dashYear').addEventListener('input',renderDashboard);document.getElementById('dashMonth').addEventListener('change',renderDashboard);document.getElementById('payYear').addEventListener('input',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('payMonth').addEventListener('change',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('staffSearch').addEventListener('input',renderStaff);document.getElementById('staffStatusFilter').addEventListener('change',renderStaff);document.getElementById('bharpaiYear').addEventListener('input',renderBharpai);document.getElementById('bharpaiMonth').addEventListener('change',renderBharpai);document.getElementById('bharpaiStaff').addEventListener('change',renderBharpai);document.getElementById('bharpaiManualDate').addEventListener('change',renderBharpai);document.getElementById('setBharpaiLogo').addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;if(payrollReadOnly)return denyPayrollWrite();if(f.size>120000){showToast('Logo must be below 120 KB.');e.target.value='';return}const reader=new FileReader();reader.onload=()=>{db.settings.bharpaiLogo=String(reader.result||'');saveDB();showToast('Logo saved.');};reader.readAsDataURL(f)});document.getElementById('reportYear').addEventListener('input',renderReports);document.getElementById('reportMonth').addEventListener('change',renderReports);document.getElementById('reportStaff').addEventListener('change',renderReports);document.getElementById('historyMonths').addEventListener('change',renderReports);document.getElementById('reportStatus').addEventListener('change',renderReports);document.getElementById('reportTabs').addEventListener('click',e=>{let b=e.target.closest('.report-tab');if(!b)return;currentReportType=b.dataset.type;document.querySelectorAll('.report-tab').forEach(x=>x.classList.toggle('active',x===b));renderReports()});window.addEventListener('click',e=>{if(e.target.classList.contains('modal'))e.target.classList.remove('show')});
 
 
 /* ============================================================
@@ -709,8 +712,20 @@ verifyAccountsSession=async function(){
 /* ==== NON-DESTRUCTIVE PAN + INDIVIDUAL BHARPAI ADDITION ==== */
 function bharpaiNepaliDigits(v){return String(v).replace(/[0-9]/g,c=>'०१२३४५६७८९'[+c]);}
 function bharpaiCurrentBSDate(){
-  if(typeof NepaliDate!=='function')return null;
-  try{return new NepaliDate(new Date()).format('YYYY/MM/DD','np');}catch(e){console.error('Nepali date unavailable',e);return null;}
+  // Respect local Nepali time; never silently substitute the Gregorian date.
+  if(typeof NepaliDate==='function'){
+    try{
+      const date=new NepaliDate(new Date()).format('YYYY/MM/DD','np');
+      if(/^[०-९0-9]{4}\/[०-९0-9]{1,2}\/[०-९0-9]{1,2}$/.test(date))return date;
+    }catch(e){console.error('Nepali date converter failed',e);}
+  }
+  // Operator-confirmed fallback does not overwrite or alter saved Payroll data.
+  const manual=String(document.getElementById('bharpaiManualDate')?.value||'').trim()
+    .replace(/[0-9]/g,c=>'०१२३४५६७८९'[+c]).replace(/-/g,'/');
+  if(!/^[०-९]{4}\/[०-९]{2}\/[०-९]{2}$/.test(manual))return null;
+  const ds=manual.replace(/[०-९]/g,c=>String('०१२३४५६७८९'.indexOf(c)));
+  const [year,month,day]=ds.split('/').map(Number);
+  return year>=2000&&year<=2200&&month>=1&&month<=12&&day>=1&&day<=32 ? manual : null;
 }
 function bharpaiNumber(r){
   // Deterministic monthly receipt series; no new payment or database write.
@@ -733,7 +748,7 @@ function renderBharpai(){
  const rows=provided.filter(r=>!picker.value||r.staffId===picker.value);
  if(!rows.length){target.innerHTML='<div class="empty">यस महिनामा Salary Provided भएको कर्मचारीको भरपाई फेला परेन।</div>';return;}
  const date=bharpaiCurrentBSDate();
- if(!date){target.innerHTML='<div class="note danger-note">नेपाली मिति रूपान्तरण सेवा लोड भएन। इन्टरनेट जाँचेर पुनः खोल्नुहोस्। गलत मिति राखेर भरपाई निकालिने छैन।</div>';return;}
+ if(!date){target.innerHTML='<div class="note danger-note">नेपाली मिति स्वतः लोड भएन। माथिको ‘मिति (BS)’ बाकसमा आजको सही नेपाली मिति (जस्तै २०८३/०६/२२) पुष्टि गरेर लेख्नुहोस् र ‘हेर्नुहोस्’ थिच्नुहोस्। गलत वा खाली मितिमा भरपाई प्रिन्ट हुँदैन।</div>';return;}
  target.innerHTML=rows.map(r=>{
   const person=db.staff.find(x=>x.id===r.staffId||x.code===r.staffCode)||{};
   const s=db.settings;const logo=String(s.bharpaiLogo||'');
