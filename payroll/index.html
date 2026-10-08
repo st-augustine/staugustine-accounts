@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>St. Augustine Payroll & Salary Manager</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/nepali-date-converter@3.4.0/dist/nepali-date-converter.umd.js"></script>
 <style>
 :root{
   --bg:#eef4fb;--panel:#ffffff;--ink:#10233f;--muted:#6c7d93;--line:#dbe5ef;
@@ -129,6 +130,18 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 .payroll-tablebox{scrollbar-gutter:stable both-edges}
 @media(max-width:680px){.login-brand{padding:22px}.login-photo-wrap{height:120px;margin-bottom:14px}.login-brand h1{font-size:24px}.brand-mark{display:none}.brand-chip{display:none}.app{display:block}.sidebar{position:fixed;left:0;right:0;bottom:0;top:auto;height:67px;z-index:30;display:flex;overflow-x:auto;padding:7px;background:#08203d}.brand,.navcap,.sidebar-foot{display:none}.navbtn{min-width:66px;margin:0 2px;padding:8px}.main{padding-bottom:68px}.topbar{height:64px;padding:0 14px}.topbar h2{font-size:17px}.topmeta{display:none}.content{padding:14px}.cards{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.form-grid .wide{grid-column:auto}.summary-strip{grid-template-columns:repeat(2,1fr)}.section-head{align-items:flex-start;flex-direction:column}.period-group{flex-direction:column}.login-form{padding:35px 24px}.login-card{border-radius:20px}.lockbar{align-items:flex-start;flex-direction:column}.payroll-top-scroll-wrap{top:64px}}
 @media print{.sidebar,.topbar,.no-print,.toast,.modal{display:none!important}.app{display:block}.content{padding:0;max-width:none}.section{display:none!important}body.print-reports #reports{display:block!important}.card,.tablebox{box-shadow:none;border:0}.table th{position:static}.print-title{display:block!important}.hero-strip{display:none!important}}
+
+.bharpai-preview{display:flex;flex-wrap:wrap;gap:18px;justify-content:center;margin:16px 0}
+.bharpai-page{width:148mm;min-height:210mm;padding:13mm 11mm;background:#fff;color:#111;border:1px solid #d7dce3;box-shadow:0 8px 25px #10233f20;font-family:"Noto Sans Devanagari",Mangal,Arial,sans-serif;font-size:11px;line-height:1.55}
+.bharpai-header{display:flex;align-items:center;justify-content:center;gap:12px;text-align:center;border-bottom:2px solid #233a52;padding-bottom:9px}
+.bharpai-logo{height:55px;width:55px;object-fit:contain}
+.bharpai-heading{font:800 15px Arial,sans-serif;letter-spacing:.15px}.bharpai-address{font:11px Arial,sans-serif;margin-top:3px}
+.bharpai-title{text-align:center;font-weight:800;font-size:17px;margin:10px 0;border-bottom:1px solid #bbb;padding-bottom:6px}
+.bharpai-meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-bottom:10px}
+.bharpai-money{width:100%;border-collapse:collapse;margin:11px 0}.bharpai-money th,.bharpai-money td{border:1px solid #bfc7d2;padding:5px 8px}.bharpai-money th{background:#f0f4f8}.bharpai-money td:last-child{text-align:right;font-variant-numeric:tabular-nums}.bharpai-money .important{background:#e9f0f6;font-weight:bold}
+.bharpai-note{margin-top:12px}.bharpai-signatures{display:flex;justify-content:space-between;gap:12px;margin-top:36px;text-align:center}.bharpai-signature{flex:1;min-width:0;border-top:1px solid #333;padding-top:5px;font-size:10px}
+@page{size:A5 portrait;margin:0}
+@media print{body.print-bharpai #bharpai{display:block!important}body.print-bharpai .bharpai-preview{display:block;margin:0}body.print-bharpai .bharpai-page{width:148mm;min-height:210mm;height:210mm;padding:13mm 11mm;border:0;box-shadow:none;break-after:page;page-break-after:always}body.print-bharpai .bharpai-page:last-child{break-after:auto;page-break-after:auto}body.print-bharpai .bharpai-page *{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
 </style>
 </head>
 <body>
@@ -165,6 +178,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
   <button class="navbtn" data-section="staff"><span>♟</span> <b>Staff Master</b></button>
   <button class="navbtn" data-section="payroll"><span>₨</span> <b>Monthly Payroll</b></button>
   <button class="navbtn" data-section="reports"><span>▤</span> <b>Reports</b></button>
+  <button class="navbtn" data-section="bharpai"><span>▣</span> <b>तलब भरपाई</b></button>
   <div class="navcap">System</div>
   <button class="navbtn" data-section="settings"><span>⚙</span> <b>Settings</b></button>
   <button class="navbtn" data-section="backup"><span>⬇</span> <b>Backup</b></button>
@@ -233,6 +247,19 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
   <div class="tablebox"><table class="table"><thead id="reportHead"></thead><tbody id="reportBody"></tbody><tfoot id="reportFoot"></tfoot></table></div>
 </section>
 
+<section id="bharpai" class="section">
+ <div class="section-head"><div><h3>तलब भरपाई (Salary Bharpai)</h3><p>Salary Provided भएका कर्मचारीको व्यक्तिगत A5 भरपाई।</p></div></div>
+ <div class="card no-print"><div class="toolbar" style="margin:0">
+ <div class="field"><label>नेपाली साल</label><input id="bharpaiYear" class="input" type="number" min="2000" max="2200"></div>
+ <div class="field"><label>तलब महिना</label><select id="bharpaiMonth"></select></div>
+ <div class="field grow"><label>कर्मचारी</label><select id="bharpaiStaff"><option value="">सबै कर्मचारी</option></select></div>
+ <button class="btn primary" onclick="renderBharpai()">हेर्नुहोस्</button>
+ <button class="btn ok" onclick="printBharpai()">Print A5</button>
+ </div></div>
+ <div class="note no-print" style="margin:12px 0">भरपाईमा केवल Salary Provided भएका कर्मचारी र रकम भएका शीर्षकहरू देखिन्छन्। Print गर्दा हिसाब वा भुक्तानीमा कुनै परिवर्तन हुँदैन।</div>
+ <div id="bharpaiPreview" class="bharpai-preview"></div>
+ </section>
+
 <section id="settings" class="section">
   <div class="section-head"><div><h3>School & Payroll Settings</h3><p>Settings used in salary calculation, reports and slips.</p></div></div>
   <div class="grid two">
@@ -243,7 +270,15 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
     <div class="card"><h4 class="panel-title">Cloud Access</h4><div class="note"><b>Single Login:</b> Payroll uses the secure St. Augustine Accounts Supabase session. Accountant has full control; CEO/MD can open read-only Payroll only when the Accountant enables Payroll / Salary Access.<br><br><b>Cloud Data:</b> Staff, settings and monthly payroll records are saved automatically to Supabase. The browser copy is only a local cache/fallback.</div></div>
     <div class="card"><h4 class="panel-title">Tax Rule</h4><div class="note">Auto Tax = <b>(Gross Salary − SSF/SSI) × Tax %</b>, then the tax is rounded <b>up to the next whole rupee</b>. Example: Rs. 360 stays Rs. 360; Rs. 111.01 / 111.50 becomes Rs. 112. Manual tax is also saved as a whole rupee.</div></div>
   </div>
-  <div style="margin-top:16px"><button class="btn primary" onclick="saveSettings()">Save Settings</button></div>
+  <div class="card" style="margin-top:16px"><h4 class="panel-title">Salary Bharpai Settings</h4>
+ <div class="form-grid">
+ <div class="field"><label>Prepared By Name</label><input id="setPreparedBy" class="input" placeholder="Sagar Adhikari"></div>
+ <div class="field"><label>Prepared By Title</label><input id="setPreparedTitle" class="input" placeholder="Accountant"></div>
+ <div class="field"><label>Checked By Name (Optional)</label><input id="setCheckedBy" class="input"></div>
+ <div class="field"><label>Approved By Name (Optional)</label><input id="setApprovedBy" class="input"></div>
+ <div class="field wide"><label>School Logo (Optional; max 120 KB)</label><input type="file" id="setBharpaiLogo" class="input" accept="image/png,image/jpeg,image/webp"><small>Logo image is stored in Payroll settings. Existing logo remains unless you upload a new one.</small></div>
+ </div></div>
+ <div style="margin-top:16px"><button class="btn primary" onclick="saveSettings()">Save Settings</button></div>
 </section>
 
 <section id="backup" class="section">
@@ -259,7 +294,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 
 <div id="staffModal" class="modal"><div class="dialog"><div class="dialog-head"><h3 id="staffModalTitle">Add Staff</h3><button class="closex" onclick="closeModal('staffModal')">×</button></div><div class="dialog-body"><input type="hidden" id="staffEditId"><div class="form-grid">
 <div class="field"><label>Staff ID</label><input id="staffCode" class="input" placeholder="e.g. STF001"></div><div class="field"><label>Full Name</label><input id="staffName" class="input"></div><div class="field"><label>Designation</label><input id="staffRole" class="input" placeholder="Teacher / Principal / Staff"></div><div class="field"><label>Status</label><select id="staffActive"><option value="true">Active</option><option value="false">Inactive</option></select></div>
-<div class="field"><label>Basic Salary</label><input id="staffBasic" class="input" type="number" min="0" step="0.01"></div><div class="field"><label>Default Tax %</label><input id="staffTax" class="input" type="number" min="0" max="100" step="0.01"></div><div class="field"><label>SSF / SSI Fixed Amount</label><input id="staffSsf" class="input" type="number" min="0" step="0.01"></div><div class="field"><label>Default Other Deduction</label><input id="staffOtherDed" class="input" type="number" min="0" step="0.01"></div>
+<div class="field"><label>PAN Number (Optional)</label><input id="staffPan" class="input" maxlength="30" placeholder="Leave blank if unavailable"></div><div class="field"><label>Basic Salary</label><input id="staffBasic" class="input" type="number" min="0" step="0.01"></div><div class="field"><label>Default Tax %</label><input id="staffTax" class="input" type="number" min="0" max="100" step="0.01"></div><div class="field"><label>SSF / SSI Fixed Amount</label><input id="staffSsf" class="input" type="number" min="0" step="0.01"></div><div class="field"><label>Default Other Deduction</label><input id="staffOtherDed" class="input" type="number" min="0" step="0.01"></div>
 <div class="field wide"><label>Default Allowance Amount</label><input id="staffAllowance" class="input" type="number" min="0" step="0.01"></div>
 </div><div class="note" style="margin-top:14px">Set Tax % to 0 for no tax. Monthly payroll still allows an exact manual tax amount when unlocked.</div></div><div class="dialog-foot"><button class="btn ghost" onclick="closeModal('staffModal')">Cancel</button><button class="btn primary" onclick="saveStaff()">Save Staff</button></div></div></div>
 
@@ -433,7 +468,7 @@ async function verifyAccountsSession(){
 }
 document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});document.getElementById('loginUser').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginPass').focus()});
 
-function showSection(id){document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.navbtn').forEach(x=>x.classList.toggle('active',x.dataset.section===id));document.getElementById('appRoot').classList.toggle('payroll-mode',id==='payroll');document.getElementById('pageTitle').textContent={dashboard:'Dashboard',staff:'Staff Master',payroll:'Monthly Payroll',reports:'Reports',settings:'Settings',backup:'Backup & Restore'}[id];if(id==='dashboard')renderDashboard();if(id==='staff')renderStaff();if(id==='payroll'){renderPayroll();setTimeout(syncPayrollTopScroll,0);}if(id==='reports')renderReports();if(id==='settings')loadSettings()}
+function showSection(id){document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));document.getElementById(id).classList.add('active');document.querySelectorAll('.navbtn').forEach(x=>x.classList.toggle('active',x.dataset.section===id));document.getElementById('appRoot').classList.toggle('payroll-mode',id==='payroll');document.getElementById('pageTitle').textContent={dashboard:'Dashboard',staff:'Staff Master',payroll:'Monthly Payroll',reports:'Reports',bharpai:'तलब भरपाई',settings:'Settings',backup:'Backup & Restore'}[id];if(id==='dashboard')renderDashboard();if(id==='staff')renderStaff();if(id==='payroll'){renderPayroll();setTimeout(syncPayrollTopScroll,0);}if(id==='reports')renderReports();if(id==='bharpai')renderBharpai();if(id==='settings')loadSettings()}
 document.querySelectorAll('.navbtn').forEach(b=>b.addEventListener('click',()=>showSection(b.dataset.section)));
 
 function calcRecord(r){let allowance=(r.allowances||[]).reduce((a,x)=>a+n(x.amount),0);let gross=n(r.basic)+allowance;let ssf=n(r.ssf),abs=n(r.absentDed);let taxableBase=Math.max(0,gross-abs-ssf);let tax=r.taxMode==='manual'?roundTax(r.taxAmount):roundTax(taxableBase*n(r.taxPct)/100);let ded=tax+ssf+abs+n(r.otherDed)+n(r.advance);return {...r,taxAmount:tax,allowanceTotal:allowance,gross,taxableBase,totalDed:ded,net:gross-ded}}
@@ -441,9 +476,9 @@ function calcRecord(r){let allowance=(r.allowances||[]).reduce((a,x)=>a+n(x.amou
 function renderDashboard(){let key=selectedPeriod('dash');let all=db.payroll.filter(x=>x.period===key).map(calcRecord),records=all.filter(x=>x.provided),active=db.staff.filter(x=>x.active).length;let gross=records.reduce((a,x)=>a+x.gross,0),ded=records.reduce((a,x)=>a+x.totalDed,0),net=records.reduce((a,x)=>a+x.net,0);document.getElementById('statStaff').textContent=active;document.getElementById('statGross').textContent=fmt(gross);document.getElementById('statDed').textContent=fmt(ded);document.getElementById('statNet').textContent=fmt(net);let tax=records.reduce((a,x)=>a+n(x.taxAmount),0),ssf=records.reduce((a,x)=>a+n(x.ssf),0),abs=records.reduce((a,x)=>a+n(x.absentDed),0),allow=records.reduce((a,x)=>a+x.allowanceTotal,0),cash=records.filter(x=>x.paymentMode==='Cash').reduce((a,x)=>a+x.net,0),bank=records.filter(x=>x.paymentMode==='Bank Deposit').reduce((a,x)=>a+x.net,0);document.getElementById('dashBreakdown').innerHTML=[['Tax',tax],['SSF/SSI',ssf],['Absent Deduction',abs],['Allowances',allow],['Cash Provided',cash],['Bank Deposit',bank]].map(x=>`<div class="mini"><small>${x[0]}</small><strong>${fmt(x[1])}</strong></div>`).join('');let provided=records.length,pending=all.filter(x=>!x.provided).length,paid=records.filter(x=>x.status==='Paid').length;document.getElementById('dashStatus').innerHTML=all.length?`<div class="summary-strip" style="grid-template-columns:repeat(3,1fr)"><div class="mini"><small>Provided</small><strong>${provided}</strong></div><div class="mini"><small>Not Provided</small><strong>${pending}</strong></div><div class="mini"><small>Paid</small><strong>${paid}</strong></div></div><div class="divider"></div><div class="muted">${periodLabel(key)} · ${all.length} generated payroll record(s).</div>`:`<div class="empty">No payroll generated for ${periodLabel(key)}.</div>`}
 
 function nextStaffCode(){let max=db.staff.reduce((m,s)=>Math.max(m,Number(String(s.code).replace(/\D/g,''))||0),0);return 'STF'+String(max+1).padStart(3,'0')}
-function renderStaff(){let q=document.getElementById('staffSearch').value.toLowerCase(),sf=document.getElementById('staffStatusFilter').value;let rows=db.staff.filter(s=>(!q||[s.code,s.name,s.role].join(' ').toLowerCase().includes(q))&&(sf==='all'||(sf==='active'?s.active:!s.active)));document.getElementById('staffBody').innerHTML=rows.length?rows.map(s=>`<tr><td>${esc(s.code)}</td><td><b>${esc(s.name)}</b></td><td>${esc(s.role)}</td><td class="right money">${fmt(s.basic)}</td><td class="right">${n(s.taxPct).toFixed(2)}%</td><td class="right money">${fmt(s.ssf)}</td><td class="right money">${fmt(s.defaultAllowance)}</td><td><span class="badge ${s.active?'ok':'off'}">${s.active?'Active':'Inactive'}</span></td><td class="no-print"><button class="btn small ghost" onclick="openStaffModal('${s.id}')">Edit</button> <button class="btn small danger" onclick="deleteStaff('${s.id}')">Delete</button></td></tr>`).join(''):`<tr><td colspan="9" class="empty">No staff found.</td></tr>`;populateStaffSelect()}
-function openStaffModal(id=''){let s=id?db.staff.find(x=>x.id===id):null;document.getElementById('staffModalTitle').textContent=s?'Edit Staff':'Add Staff';document.getElementById('staffEditId').value=s?.id||'';document.getElementById('staffCode').value=s?.code||nextStaffCode();document.getElementById('staffName').value=s?.name||'';document.getElementById('staffRole').value=s?.role||'Teacher';document.getElementById('staffActive').value=String(s?.active??true);document.getElementById('staffBasic').value=s?.basic??0;document.getElementById('staffTax').value=s?.taxPct??db.settings.defaultTaxPct??1;document.getElementById('staffSsf').value=s?.ssf??0;document.getElementById('staffOtherDed').value=s?.otherDed??0;document.getElementById('staffAllowance').value=s?.defaultAllowance??0;document.getElementById('staffModal').classList.add('show')}
-function saveStaff(){let id=document.getElementById('staffEditId').value,code=document.getElementById('staffCode').value.trim(),name=document.getElementById('staffName').value.trim();if(!code||!name){showToast('Staff ID and name are required.');return}if(db.staff.some(s=>s.code.toLowerCase()===code.toLowerCase()&&s.id!==id)){showToast('Staff ID already exists.');return}let old=id?db.staff.find(x=>x.id===id):null;let obj={id:id||cryptoId(),code,name:name.toUpperCase(),role:document.getElementById('staffRole').value.trim()||'Staff',active:document.getElementById('staffActive').value==='true',basic:n(document.getElementById('staffBasic').value),taxPct:n(document.getElementById('staffTax').value),ssf:n(document.getElementById('staffSsf').value),otherDed:n(document.getElementById('staffOtherDed').value),defaultAllowance:n(document.getElementById('staffAllowance').value),createdAt:old?.createdAt||new Date().toISOString()};if(id)db.staff=db.staff.map(s=>s.id===id?obj:s);else db.staff.push(obj);saveDB();closeModal('staffModal');renderStaff();renderDashboard();showToast('Staff saved.')}
+function renderStaff(){let q=document.getElementById('staffSearch').value.toLowerCase(),sf=document.getElementById('staffStatusFilter').value;let rows=db.staff.filter(s=>(!q||[s.code,s.name,s.role,s.pan||''].join(' ').toLowerCase().includes(q))&&(sf==='all'||(sf==='active'?s.active:!s.active)));document.getElementById('staffBody').innerHTML=rows.length?rows.map(s=>`<tr><td>${esc(s.code)}</td><td><b>${esc(s.name)}</b></td><td>${esc(s.role)}</td><td class="right money">${fmt(s.basic)}</td><td class="right">${n(s.taxPct).toFixed(2)}%</td><td class="right money">${fmt(s.ssf)}</td><td class="right money">${fmt(s.defaultAllowance)}</td><td><span class="badge ${s.active?'ok':'off'}">${s.active?'Active':'Inactive'}</span></td><td class="no-print"><button class="btn small ghost" onclick="openStaffModal('${s.id}')">Edit</button> <button class="btn small danger" onclick="deleteStaff('${s.id}')">Delete</button></td></tr>`).join(''):`<tr><td colspan="9" class="empty">No staff found.</td></tr>`;populateStaffSelect()}
+function openStaffModal(id=''){let s=id?db.staff.find(x=>x.id===id):null;document.getElementById('staffModalTitle').textContent=s?'Edit Staff':'Add Staff';document.getElementById('staffEditId').value=s?.id||'';document.getElementById('staffCode').value=s?.code||nextStaffCode();document.getElementById('staffName').value=s?.name||'';document.getElementById('staffRole').value=s?.role||'Teacher';document.getElementById('staffActive').value=String(s?.active??true);document.getElementById('staffPan').value=s?.pan||'';document.getElementById('staffBasic').value=s?.basic??0;document.getElementById('staffTax').value=s?.taxPct??db.settings.defaultTaxPct??1;document.getElementById('staffSsf').value=s?.ssf??0;document.getElementById('staffOtherDed').value=s?.otherDed??0;document.getElementById('staffAllowance').value=s?.defaultAllowance??0;document.getElementById('staffModal').classList.add('show')}
+function saveStaff(){let id=document.getElementById('staffEditId').value,code=document.getElementById('staffCode').value.trim(),name=document.getElementById('staffName').value.trim();if(!code||!name){showToast('Staff ID and name are required.');return}if(db.staff.some(s=>s.code.toLowerCase()===code.toLowerCase()&&s.id!==id)){showToast('Staff ID already exists.');return}let old=id?db.staff.find(x=>x.id===id):null;let obj={...old,id:id||cryptoId(),code,name:name.toUpperCase(),pan:document.getElementById('staffPan').value.trim(),role:document.getElementById('staffRole').value.trim()||'Staff',active:document.getElementById('staffActive').value==='true',basic:n(document.getElementById('staffBasic').value),taxPct:n(document.getElementById('staffTax').value),ssf:n(document.getElementById('staffSsf').value),otherDed:n(document.getElementById('staffOtherDed').value),defaultAllowance:n(document.getElementById('staffAllowance').value),createdAt:old?.createdAt||new Date().toISOString()};if(id)db.staff=db.staff.map(s=>s.id===id?obj:s);else db.staff.push(obj);saveDB();closeModal('staffModal');renderStaff();renderDashboard();showToast('Staff saved.')}
 function deleteStaff(id){let s=db.staff.find(x=>x.id===id);if(!s)return;if(!confirm(`Delete ${s.name}? Existing monthly payroll records will be kept.`))return;db.staff=db.staff.filter(x=>x.id!==id);saveDB();renderStaff();renderDashboard();showToast('Staff deleted.')}
 
 function generatePayroll(){let key=selectedPeriod('pay');db.staff.filter(s=>s.active).forEach(s=>{let existing=db.payroll.find(p=>p.period===key&&p.staffId===s.id);if(!existing){let allowance=s.defaultAllowance>0?[{name:'Allowance',amount:n(s.defaultAllowance)}]:[];let gross=n(s.basic)+n(s.defaultAllowance),ssf=n(s.ssf),taxable=Math.max(0,gross-ssf),pct=n(s.taxPct);db.payroll.push({id:cryptoId(),period:key,staffId:s.id,staffCode:s.code,staffName:s.name,role:s.role,basic:n(s.basic),workingDays:n(db.settings.workingDays)||30,absentDays:0,absentDed:0,taxPct:pct,taxMode:'auto',taxAmount:roundTax(taxable*pct/100),ssf,otherDed:n(s.otherDed),advance:0,allowances:allowance,status:'Pending',paymentDate:'',paymentMode:'Cash',remarks:'',provided:false,providedAt:'',providedLabel:''})}});saveDB();payrollUnlocked=false;renderPayroll();syncPeriod('pay','dash');syncPeriod('pay','report');renderDashboard();renderReports();showToast('Monthly payroll generated / refreshed.')}
@@ -516,16 +551,16 @@ function setupPayrollTopScroll(){
   setTimeout(syncPayrollTopScroll,0);
 }
 
-function loadSettings(){let s=db.settings;document.getElementById('setSchoolName').value=s.schoolName||'';document.getElementById('setAddress').value=s.address||'';document.getElementById('setPhone').value=s.phone||'';document.getElementById('setPan').value=s.pan||'';document.getElementById('setWorkingDays').value=s.workingDays||30;document.getElementById('setTaxPct').value=s.defaultTaxPct??1;document.getElementById('setCurrency').value=s.currency||'Rs.';document.getElementById('setNepaliYear').value=s.defaultNepaliYear||2083;document.getElementById('setAbsentMethod').value=s.absentMethod||'auto'}
-function saveSettings(){db.settings={...db.settings,schoolName:document.getElementById('setSchoolName').value.trim()||'St. Augustine Academic Foundation',address:document.getElementById('setAddress').value.trim(),phone:document.getElementById('setPhone').value.trim(),pan:document.getElementById('setPan').value.trim(),workingDays:n(document.getElementById('setWorkingDays').value)||30,defaultTaxPct:n(document.getElementById('setTaxPct').value),currency:document.getElementById('setCurrency').value.trim()||'Rs.',defaultNepaliYear:n(document.getElementById('setNepaliYear').value)||2083,absentMethod:document.getElementById('setAbsentMethod').value};delete db.settings.adminUser;delete db.settings.adminPass;saveDB();syncHeader();showToast('Settings saved to Supabase cloud.')}
+function loadSettings(){let s=db.settings;document.getElementById('setPreparedBy').value=s.preparedBy??'Sagar Adhikari';document.getElementById('setPreparedTitle').value=s.preparedTitle??'Accountant';document.getElementById('setCheckedBy').value=s.checkedBy||'';document.getElementById('setApprovedBy').value=s.approvedBy||'';document.getElementById('setSchoolName').value=s.schoolName||'';document.getElementById('setAddress').value=s.address||'';document.getElementById('setPhone').value=s.phone||'';document.getElementById('setPan').value=s.pan||'';document.getElementById('setWorkingDays').value=s.workingDays||30;document.getElementById('setTaxPct').value=s.defaultTaxPct??1;document.getElementById('setCurrency').value=s.currency||'Rs.';document.getElementById('setNepaliYear').value=s.defaultNepaliYear||2083;document.getElementById('setAbsentMethod').value=s.absentMethod||'auto'}
+function saveSettings(){db.settings={...db.settings,preparedBy:document.getElementById('setPreparedBy').value.trim(),preparedTitle:document.getElementById('setPreparedTitle').value.trim(),checkedBy:document.getElementById('setCheckedBy').value.trim(),approvedBy:document.getElementById('setApprovedBy').value.trim(),schoolName:document.getElementById('setSchoolName').value.trim()||'St. Augustine Academic Foundation',address:document.getElementById('setAddress').value.trim(),phone:document.getElementById('setPhone').value.trim(),pan:document.getElementById('setPan').value.trim(),workingDays:n(document.getElementById('setWorkingDays').value)||30,defaultTaxPct:n(document.getElementById('setTaxPct').value),currency:document.getElementById('setCurrency').value.trim()||'Rs.',defaultNepaliYear:n(document.getElementById('setNepaliYear').value)||2083,absentMethod:document.getElementById('setAbsentMethod').value};delete db.settings.adminUser;delete db.settings.adminPass;saveDB();syncHeader();showToast('Settings saved to Supabase cloud.')}
 function exportBackup(){let blob=new Blob([JSON.stringify({...db,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`St_Augustine_Payroll_Backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);showToast('Backup downloaded.')}
 function restoreBackup(){let f=document.getElementById('restoreFile').files[0];if(!f){showToast('Select a backup file first.');return}let rd=new FileReader();rd.onload=()=>{try{let x=JSON.parse(rd.result);if(!x.staff||!x.payroll||!x.settings)throw new Error();if(!confirm('Restore this backup and replace current payroll data?'))return;db=normalizeDB({settings:x.settings,staff:x.staff,payroll:x.payroll});saveDB();init();showToast('Backup restored and saved to Supabase cloud.')}catch(e){showToast('Invalid backup file.')}};rd.readAsText(f)}
 function resetAllData(){if(!confirm('Reset payroll data completely? This will replace the Supabase cloud Payroll data too. Export a backup first.'))return;localStorage.removeItem(DB_KEY);db=defaultDB();saveDB();init();showToast('Payroll system reset in cloud and local cache.')}
 function syncHeader(){document.getElementById('schoolTop').textContent=db.settings.schoolName;document.getElementById('todayText').textContent='Nepali payroll period is selected manually'}
 function syncPeriod(from,to){document.getElementById(to+'Year').value=document.getElementById(from+'Year').value;document.getElementById(to+'Month').value=document.getElementById(from+'Month').value}
-function init(){['dashMonth','payMonth','reportMonth'].forEach(populateMonthSelect);let y=db.settings.defaultNepaliYear||2083;['dashYear','payYear','reportYear'].forEach(id=>{if(!document.getElementById(id).value)document.getElementById(id).value=y});['dashMonth','payMonth','reportMonth'].forEach(id=>{if(!document.getElementById(id).value)document.getElementById(id).value=5});syncHeader();renderStaff();renderPayroll();renderDashboard();renderReports();loadSettings()}
+function init(){['dashMonth','payMonth','reportMonth','bharpaiMonth'].forEach(populateMonthSelect);let y=db.settings.defaultNepaliYear||2083;['dashYear','payYear','reportYear','bharpaiYear'].forEach(id=>{if(!document.getElementById(id).value)document.getElementById(id).value=y});['dashMonth','payMonth','reportMonth','bharpaiMonth'].forEach(id=>{if(!document.getElementById(id).value)document.getElementById(id).value=5});syncHeader();renderStaff();renderPayroll();renderDashboard();renderReports();renderBharpai();loadSettings()}
 
-document.getElementById('dashYear').addEventListener('input',renderDashboard);document.getElementById('dashMonth').addEventListener('change',renderDashboard);document.getElementById('payYear').addEventListener('input',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('payMonth').addEventListener('change',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('staffSearch').addEventListener('input',renderStaff);document.getElementById('staffStatusFilter').addEventListener('change',renderStaff);document.getElementById('reportYear').addEventListener('input',renderReports);document.getElementById('reportMonth').addEventListener('change',renderReports);document.getElementById('reportStaff').addEventListener('change',renderReports);document.getElementById('historyMonths').addEventListener('change',renderReports);document.getElementById('reportStatus').addEventListener('change',renderReports);document.getElementById('reportTabs').addEventListener('click',e=>{let b=e.target.closest('.report-tab');if(!b)return;currentReportType=b.dataset.type;document.querySelectorAll('.report-tab').forEach(x=>x.classList.toggle('active',x===b));renderReports()});window.addEventListener('click',e=>{if(e.target.classList.contains('modal'))e.target.classList.remove('show')});
+document.getElementById('dashYear').addEventListener('input',renderDashboard);document.getElementById('dashMonth').addEventListener('change',renderDashboard);document.getElementById('payYear').addEventListener('input',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('payMonth').addEventListener('change',()=>{payrollUnlocked=false;renderPayroll()});document.getElementById('staffSearch').addEventListener('input',renderStaff);document.getElementById('staffStatusFilter').addEventListener('change',renderStaff);document.getElementById('bharpaiYear').addEventListener('input',renderBharpai);document.getElementById('bharpaiMonth').addEventListener('change',renderBharpai);document.getElementById('bharpaiStaff').addEventListener('change',renderBharpai);document.getElementById('setBharpaiLogo').addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;if(payrollReadOnly)return denyPayrollWrite();if(f.size>120000){showToast('Logo must be below 120 KB.');e.target.value='';return}const reader=new FileReader();reader.onload=()=>{db.settings.bharpaiLogo=String(reader.result||'');saveDB();showToast('Logo saved.');};reader.readAsDataURL(f)});document.getElementById('reportYear').addEventListener('input',renderReports);document.getElementById('reportMonth').addEventListener('change',renderReports);document.getElementById('reportStaff').addEventListener('change',renderReports);document.getElementById('historyMonths').addEventListener('change',renderReports);document.getElementById('reportStatus').addEventListener('change',renderReports);document.getElementById('reportTabs').addEventListener('click',e=>{let b=e.target.closest('.report-tab');if(!b)return;currentReportType=b.dataset.type;document.querySelectorAll('.report-tab').forEach(x=>x.classList.toggle('active',x===b));renderReports()});window.addEventListener('click',e=>{if(e.target.classList.contains('modal'))e.target.classList.remove('show')});
 
 
 /* ============================================================
@@ -578,7 +613,7 @@ function configurePayrollRoleUI(){
 
   if(payrollReadOnly){
     document.querySelectorAll('.navbtn').forEach(btn=>{
-      const allowed=['dashboard','reports'].includes(btn.dataset.section);
+      const allowed=['dashboard','reports','bharpai'].includes(btn.dataset.section);
       btn.style.display=allowed?'':'none';
     });
     document.querySelectorAll('.navcap').forEach(cap=>{
@@ -591,7 +626,7 @@ function configurePayrollRoleUI(){
 
 const _v20ShowSection=showSection;
 showSection=function(id){
-  if(payrollReadOnly&&!['dashboard','reports'].includes(id))return denyPayrollWrite();
+  if(payrollReadOnly&&!['dashboard','reports','bharpai'].includes(id))return denyPayrollWrite();
   return _v20ShowSection(id);
 };
 
@@ -669,6 +704,59 @@ verifyAccountsSession=async function(){
   }
 };
 /* ================== END V20 PAYROLL READ ONLY ================== */
+
+
+/* ==== NON-DESTRUCTIVE PAN + INDIVIDUAL BHARPAI ADDITION ==== */
+function bharpaiNepaliDigits(v){return String(v).replace(/[0-9]/g,c=>'०१२३४५६७८९'[+c]);}
+function bharpaiCurrentBSDate(){
+  if(typeof NepaliDate!=='function')return null;
+  try{return new NepaliDate(new Date()).format('YYYY/MM/DD','np');}catch(e){console.error('Nepali date unavailable',e);return null;}
+}
+function bharpaiNumber(r){
+  // Deterministic monthly receipt series; no new payment or database write.
+  const ranked=db.payroll.filter(x=>x.period===r.period&&x.provided).sort((a,b)=>(a.staffCode||'').localeCompare(b.staffCode||'')||(a.id||'').localeCompare(b.id||''));
+  return `${r.period.replace('-','')}-${String(Math.max(1,ranked.findIndex(x=>x.id===r.id)+1)).padStart(3,'0')}`;
+}
+function bharpaiFormat(v){return 'Rs. '+n(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function bharpaiRows(r){
+ const items=[['आधारभूत तलब (Basic Salary)',r.basic],['भत्ता (Allowance)',r.allowanceTotal],['जम्मा तलब (Gross Salary)',r.gross]];
+ const deductions=[['कर कट्टी (Tax)',r.taxAmount],['सामाजिक सुरक्षा (SSF/SSI)',r.ssf],['अनुपस्थित कट्टी (Absent Deduction)',r.absentDed],['अन्य कट्टी (Other Deduction)',r.otherDed],['पेश्की/ऋण कट्टी (Advance/Loan)',r.advance]];
+ return [...items.filter((x,i)=>i===2||n(x[1])!==0).map(x=>[...x,false]),...deductions.filter(x=>n(x[1])!==0).map(x=>[...x,false]),['जम्मा कट्टी (Total Deduction)',r.totalDed,true],['खुद प्राप्त तलब (Net Salary)',r.net,true]];
+}
+function renderBharpai(){
+ const target=document.getElementById('bharpaiPreview');if(!target)return;
+ const key=selectedPeriod('bharpai'),previous=document.getElementById('bharpaiStaff').value;
+ const provided=db.payroll.filter(x=>x.period===key&&x.provided).map(calcRecord).sort((a,b)=>a.staffName.localeCompare(b.staffName));
+ const picker=document.getElementById('bharpaiStaff');
+ picker.innerHTML='<option value="">सबै कर्मचारी</option>'+provided.map(r=>`<option value="${esc(r.staffId)}">${esc(r.staffName)}</option>`).join('');
+ if([...picker.options].some(x=>x.value===previous))picker.value=previous;
+ const rows=provided.filter(r=>!picker.value||r.staffId===picker.value);
+ if(!rows.length){target.innerHTML='<div class="empty">यस महिनामा Salary Provided भएको कर्मचारीको भरपाई फेला परेन।</div>';return;}
+ const date=bharpaiCurrentBSDate();
+ if(!date){target.innerHTML='<div class="note danger-note">नेपाली मिति रूपान्तरण सेवा लोड भएन। इन्टरनेट जाँचेर पुनः खोल्नुहोस्। गलत मिति राखेर भरपाई निकालिने छैन।</div>';return;}
+ target.innerHTML=rows.map(r=>{
+  const person=db.staff.find(x=>x.id===r.staffId||x.code===r.staffCode)||{};
+  const s=db.settings;const logo=String(s.bharpaiLogo||'');
+  const safeLogo=/^data:image\/(png|jpeg|webp);base64,/.test(logo)?`<img class="bharpai-logo" src="${logo}" alt="School Logo">`:'';
+  const sig=[['तलब बुझ्ने कर्मचारी',r.staffName],['तयार गर्ने',`${s.preparedBy??'Sagar Adhikari'} — ${s.preparedTitle??'Accountant'}`],...(s.checkedBy?[['जाँच गर्ने',s.checkedBy]]:[]),...(s.approvedBy?[['स्वीकृत गर्ने',s.approvedBy]]:[])];
+  const payDate=String(r.paymentDate||'').trim();
+  return `<article class="bharpai-page">
+    <div class="bharpai-header">${safeLogo}<div><div class="bharpai-heading">${esc((s.schoolName||'ST. AUGUSTINE ACADEMIC FOUNDATION').toUpperCase())}</div><div class="bharpai-address">${esc(s.address||'Suryodaya-11, Tinghare, Ilam')}</div></div></div>
+    <div class="bharpai-title">मासिक तलब भरपाई</div>
+    <div class="bharpai-meta"><div><b>भरपाई नं.:</b> ${esc(bharpaiNumber(r))}</div><div><b>मिति:</b> ${esc(date)}</div><div><b>नाम:</b> ${esc(r.staffName)}</div><div><b>पद:</b> ${esc(r.role||person.role||'')}</div><div><b>कर्मचारी नं.:</b> ${esc(r.staffCode||person.code||'')}</div><div><b>तलब अवधि:</b> ${bharpaiNepaliDigits(splitPeriod(key).year)} साल ${esc(NEPALI_MONTHS[splitPeriod(key).month-1])} महिना</div>${person.pan?`<div><b>PAN:</b> ${esc(person.pan)}</div>`:''}<div><b>भुक्तानी माध्यम:</b> ${r.paymentMode==='Bank Deposit'?'Bank Deposit':'Cash'}</div><div><b>तलब भुक्तानी मिति:</b> ${esc(payDate||'—')}</div></div>
+    <table class="bharpai-money"><thead><tr><th>विवरण</th><th>रकम</th></tr></thead><tbody>${bharpaiRows(r).map(x=>`<tr class="${x[2]?'important':''}"><td>${esc(x[0])}</td><td>${bharpaiFormat(x[1])}</td></tr>`).join('')}</tbody></table>
+    <div class="bharpai-note">माथि उल्लेखित खुद तलब रकम बुझिलिएको प्रमाणस्वरूप यस भरपाईमा हस्ताक्षर गरेको छु।</div>
+    <div class="bharpai-signatures">${sig.map(x=>`<div class="bharpai-signature"><b>${esc(x[0])}</b><div>${esc(x[1])}</div></div>`).join('')}</div>
+  </article>`;
+ }).join('');
+}
+function printBharpai(){
+ renderBharpai();
+ if(!document.querySelector('#bharpaiPreview .bharpai-page')){showToast('No printable salary bharpai.');return;}
+ document.body.classList.add('print-bharpai');
+ window.print();
+ setTimeout(()=>document.body.classList.remove('print-bharpai'),1000);
+}
 
 setupPayrollTopScroll();
 verifyAccountsSession();
