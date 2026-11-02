@@ -713,7 +713,7 @@ function drawPaymentCalc(){
  const items=currentPayItems(s,y,paymentState.selectedMonths),currentTotal=sum(items,x=>x.amount),oldDues=num(s.dues),grand=currentTotal+oldDues;
  let discount=Math.min(Math.max(0,num(paymentState.discount)),grand),net=Math.max(0,grand-discount);
  if(paymentState.paid===0 && (items.length||oldDues>0)) paymentState.paid=net;
- $('#payCalc').innerHTML=`<div class="section premium-section"><div class="section-title"><div><h3>Selected Fee Details</h3><p>Discount accepts any amount such as 50, 350 or 1000.</p></div></div>${items.length?`<div class="payment-lines">${items.map(i=>`<div class="payment-line"><div class="month">${i.month}</div><div class="label">${esc(i.label)}${i.overridden?' <span class="chip">Scholarship</span>':''}</div><div class="amt">${money(i.amount)}</div></div>`).join('')}</div>`:`<div class="empty">Select one or more open months.</div>`}<div class="totals-panel polished-totals" style="margin-top:12px"><div class="row"><span>Current Fee Total</span><b>${money(currentTotal)}</b></div><div class="row"><span>Old Dues</span><b>${money(oldDues)}</b></div><div class="row"><span>Discount</span><input id="payDiscount" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.discount)}"></div><div class="row grand"><span>Net Payable</span><b id="payNet">${money(net)}</b></div><div class="row"><span>Received Amount</span><input id="payPaid" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.paid)}"></div><div class="row"><span>New Dues / Balance</span><b id="payNewDues" class="stat-red">${money(Math.max(0,net-num(paymentState.paid)))}</b></div><div class="row"><span>Advance</span><b id="payAdvance">${money(Math.max(0,num(paymentState.paid)-net))}</b></div></div><div class="form-actions" style="margin-top:14px"><button class="btn primary big" id="savePayment" ${paymentState.selectedMonths.length||oldDues>0?'':'disabled'}>Save & Print Receipt</button></div></div>`;
+ $('#payCalc').innerHTML=`<div class="section premium-section"><div class="section-title"><div><h3>Selected Fee Details</h3><p>Discount accepts any amount such as 50, 350 or 1000.</p></div></div>${items.length?`<div class="payment-lines">${items.map(i=>`<div class="payment-line"><div class="month">${i.month}</div><div class="label">${esc(i.label)}${i.overridden?' <span class="chip">Adjusted</span>':''}</div><div class="amt">${money(i.amount)}</div></div>`).join('')}</div>`:`<div class="empty">Select one or more open months.</div>`}<div class="totals-panel polished-totals" style="margin-top:12px"><div class="row"><span>Current Fee Total</span><b>${money(currentTotal)}</b></div><div class="row"><span>Old Dues</span><b>${money(oldDues)}</b></div><div class="row"><span>Discount</span><input id="payDiscount" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.discount)}"></div><div class="row grand"><span>Net Payable</span><b id="payNet">${money(net)}</b></div><div class="row"><span>Received Amount</span><input id="payPaid" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.paid)}"></div><div class="row"><span>New Dues / Balance</span><b id="payNewDues" class="stat-red">${money(Math.max(0,net-num(paymentState.paid)))}</b></div><div class="row"><span>Advance</span><b id="payAdvance">${money(Math.max(0,num(paymentState.paid)-net))}</b></div></div><div class="form-actions" style="margin-top:14px"><button class="btn primary big" id="savePayment" ${paymentState.selectedMonths.length||oldDues>0?'':'disabled'}>Save & Print Receipt</button></div></div>`;
  const refresh=()=>{paymentState.discount=Math.min(Math.max(0,num($('#payDiscount').value)),grand);const n=Math.max(0,grand-paymentState.discount);paymentState.paid=Math.max(0,num($('#payPaid').value));$('#payNet').textContent=money(n);$('#payNewDues').textContent=money(Math.max(0,n-paymentState.paid));$('#payAdvance').textContent=money(Math.max(0,paymentState.paid-n));};
  $('#payDiscount').oninput=refresh;$('#payPaid').oninput=refresh;$('#savePayment').onclick=savePayment;
 }
@@ -861,11 +861,27 @@ function printReceipt(id){const r=receiptById(id);if(!r)return;const w=window.op
 upgradeV6Data();
 syncAutoWorkingDateV6();
 if($('#workingDate'))$('#workingDate').value=db.settings.workingDate;
-window.openBankForm=openBankForm;window.openScholarshipMatrix=openScholarshipMatrix;window.renderBanking=renderBanking;window.renderStudentUpdate=renderStudentUpdate;
+window.openBankForm=openBankForm;window.openScholarshipMatrix=openScholarshipMatrix;
+
+/* User-visible scholarship accounting. This excludes opening adjustments, and does not
+   add yellow/highlight styling to the student list. */
+function v25ShowScholarshipStatement(){
+  const host=$('#studentReportHost');if(!host||!isAccountant())return;
+  const studentId=$('#reportStudent')?.value||$('#searchStudent')?.value;
+  const s=studentId&&studentById(studentId);if(!s)return;
+  const y=$('#reportYear')?.value||getYear();
+  const summary=v25ScholarshipSummary(s,y);
+  const box=host.querySelector('.scholarship-statement-v25');if(box)box.remove();
+  const panel=host.querySelector('.section');if(!panel)return;
+  const el=document.createElement('div');el.className='scholarship-statement-v25';
+  el.innerHTML=`<strong>Actual Scholarship (${esc(y)}): ${money(summary.amount)}</strong><span>Opening / Already Settled adjustments are excluded.</span>`;
+  panel.appendChild(el);
+}
+window.renderBanking=renderBanking;window.renderStudentUpdate=renderStudentUpdate;
 /* ==================== END V6 POLISHED LOCAL TEST OVERRIDES ==================== */
 
 /* V6 user-facing wording: Scholarship instead of Override */
-function ledgerTable(s,y){return `<div class="table-wrap"><table><thead><tr><th>Month</th><th>Status</th><th>Applicable Charges</th><th class="amount">Total</th></tr></thead><tbody>${NP_MONTHS.map((m,i)=>{const items=monthCharges(s,y,i),closed=isMonthClosed(s,y,i);return `<tr><td>${m}</td><td>${closed?'<span class="chip good">Processed / Locked</span>':'<span class="chip blue">Open</span>'}</td><td>${items.map(x=>`${esc(x.label)} ${x.overridden?'<span class="chip">Scholarship</span>':''}: ${money(x.amount)}`).join('<br>')||'-'}</td><td class="amount">${money(sum(items,x=>x.amount))}</td></tr>`}).join('')}</tbody></table></div>`}
+function ledgerTable(s,y){return `<div class="table-wrap"><table><thead><tr><th>Month</th><th>Status</th><th>Applicable Charges</th><th class="amount">Total</th></tr></thead><tbody>${NP_MONTHS.map((m,i)=>{const items=monthCharges(s,y,i),closed=isMonthClosed(s,y,i);return `<tr><td>${m}</td><td>${closed?'<span class="chip good">Processed / Locked</span>':'<span class="chip blue">Open</span>'}</td><td>${items.map(x=>`${esc(x.label)} ${x.overridden?'<span class="chip">Adjusted</span>':''}: ${money(x.amount)}`).join('<br>')||'-'}</td><td class="amount">${money(sum(items,x=>x.amount))}</td></tr>`}).join('')}</tbody></table></div>`}
 
 /* ==================== V7 LOCAL TEST FIXES ====================
    1) Banking: show transferred amount + remaining cash clearly.
@@ -1505,7 +1521,7 @@ function drawPaymentCalc(){
   let discount=Math.min(Math.max(0,num(paymentState.discount)),grand),net=Math.max(0,grand-discount);
   if(paymentState.paid===0 && (items.length||oldDues>0)) paymentState.paid=net;
   if(discount>0 && num(paymentState.paid)>net) paymentState.paid=net;
-  $('#payCalc').innerHTML=`<div class="section premium-section"><div class="section-title"><div><h3>Selected Fee Details</h3><p>Discount accepts any amount such as 50, 350 or 1000.</p></div></div>${items.length?`<div class="payment-lines">${items.map(i=>`<div class="payment-line"><div class="month">${i.month}</div><div class="label">${esc(i.label)}${i.overridden?' <span class="chip">Scholarship</span>':''}</div><div class="amt">${money(i.amount)}</div></div>`).join('')}</div>`:`<div class="empty">Select one or more open months.</div>`}<div class="totals-panel polished-totals" style="margin-top:12px"><div class="row"><span>Current Fee Total</span><b>${money(currentTotal)}</b></div><div class="row"><span>Old Dues</span><b>${money(oldDues)}</b></div><div class="row"><span>Discount</span><input id="payDiscount" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.discount)}"></div><div class="row grand"><span>Net Payable</span><b id="payNet">${money(net)}</b></div><div class="row"><span>Received Amount</span><input id="payPaid" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.paid)}"></div><div class="row"><span>New Dues / Balance</span><b id="payNewDues" class="stat-red">${money(Math.max(0,net-num(paymentState.paid)))}</b></div><div class="row"><span>Advance</span><b id="payAdvance">${money(Math.max(0,num(paymentState.paid)-net))}</b></div></div><div class="form-actions" style="margin-top:14px"><button class="btn primary big" id="savePayment" ${paymentState.selectedMonths.length||oldDues>0?'':'disabled'}>Save & Print Receipt</button></div></div>`;
+  $('#payCalc').innerHTML=`<div class="section premium-section"><div class="section-title"><div><h3>Selected Fee Details</h3><p>Discount accepts any amount such as 50, 350 or 1000.</p></div></div>${items.length?`<div class="payment-lines">${items.map(i=>`<div class="payment-line"><div class="month">${i.month}</div><div class="label">${esc(i.label)}${i.overridden?' <span class="chip">Adjusted</span>':''}</div><div class="amt">${money(i.amount)}</div></div>`).join('')}</div>`:`<div class="empty">Select one or more open months.</div>`}<div class="totals-panel polished-totals" style="margin-top:12px"><div class="row"><span>Current Fee Total</span><b>${money(currentTotal)}</b></div><div class="row"><span>Old Dues</span><b>${money(oldDues)}</b></div><div class="row"><span>Discount</span><input id="payDiscount" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.discount)}"></div><div class="row grand"><span>Net Payable</span><b id="payNet">${money(net)}</b></div><div class="row"><span>Received Amount</span><input id="payPaid" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.paid)}"></div><div class="row"><span>New Dues / Balance</span><b id="payNewDues" class="stat-red">${money(Math.max(0,net-num(paymentState.paid)))}</b></div><div class="row"><span>Advance</span><b id="payAdvance">${money(Math.max(0,num(paymentState.paid)-net))}</b></div></div><div class="form-actions" style="margin-top:14px"><button class="btn primary big" id="savePayment" ${paymentState.selectedMonths.length||oldDues>0?'':'disabled'}>Save & Print Receipt</button></div></div>`;
   $('#payDiscount').oninput=()=>{
     paymentState.discount=Math.min(Math.max(0,num($('#payDiscount').value)),grand);
     const n=Math.max(0,grand-paymentState.discount);
@@ -1702,7 +1718,7 @@ function ledgerTable(s,y){
   return `<div class="table-wrap"><table><thead><tr><th>Month</th><th>Status</th><th>Applicable Charges</th><th class="amount">Pending</th></tr></thead><tbody>${NP_MONTHS.map((m,i)=>{
     const st=v12MonthState(s,y,i);
     let status=st.noCharge?'<span class="chip">No Charge</span>':st.processed?'<span class="chip good">Processed</span>':st.partial?'<span class="chip warn">Partly Processed · New Fee Pending</span>':'<span class="chip blue">Open</span>';
-    const lines=st.all.map(x=>{const paid=v12ItemProcessed(s,y,i,x);return `${esc(x.label)} ${x.overridden?'<span class="chip">Scholarship</span>':''}: ${money(x.amount)} ${paid?'<span class="chip good">Paid</span>':num(x.amount)>0?'<span class="chip warn">Pending</span>':'<span class="chip">Zero</span>'}`;}).join('<br>')||'-';
+    const lines=st.all.map(x=>{const paid=v12ItemProcessed(s,y,i,x);return `${esc(x.label)} ${x.overridden?'<span class="chip">Adjusted</span>':''}: ${money(x.amount)} ${paid?'<span class="chip good">Paid</span>':num(x.amount)>0?'<span class="chip warn">Pending</span>':'<span class="chip">Zero</span>'}`;}).join('<br>')||'-';
     return `<tr><td>${m}</td><td>${status}</td><td>${lines}</td><td class="amount">${money(sum(st.unpaid,x=>x.amount))}</td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
@@ -2366,7 +2382,7 @@ openFeePlanForm=function(id=''){
     const payload={academic_year:String(f.elements.year.value),fee_head_id:f.elements.headId.value,class_names:classes,student_category:f.elements.category.value,amount:Math.max(0,num(f.elements.amount.value)),active:f.elements.active.value==='true',remarks:v15Nullable(f.elements.remarks.value)};
     let result=p?await sb.from('fee_plans').update(payload).eq('fee_plan_id',p.id).select('fee_plan_id,academic_year,fee_head_id,class_names,student_category,amount,active,remarks').single():await sb.from('fee_plans').insert(payload).select('fee_plan_id,academic_year,fee_head_id,class_names,student_category,amount,active,remarks').single();
     if(result.error)throw result.error;await v16RefreshFeeSetup();closeModal();renderFeeStructure();toast('Fee Plan saved online.');
-  }catch(error){console.error(error);toast('Fee Plan save failed: '+(error?.message||'Unknown error'));}finally{btn.disabled=false;btn.textContent=old;}};
+  }catch(error){console.error('Fee Plan update diagnostic', {feePlanId:p?.id||null,code:error?.code,message:error?.message,details:error?.details,hint:error?.hint},error);const detail=[error?.message,error?.details,error?.hint,error?.code&&'Code: '+error.code].filter(Boolean).join(' | ');alert('Fee Plan was NOT changed.\n\n'+(detail||'Unknown server error')+'\n\nExisting records are preserved. Please share this full message if the problem continues.');toast('Fee Plan NOT saved — see error details.');}finally{btn.disabled=false;btn.textContent=old;}};
 };
 
 window.openRouteForm=openRouteForm;
@@ -2583,35 +2599,49 @@ drawStudentList=function(){
   $('#studentHost').innerHTML=rows.length?`<div class="table-wrap"><table><thead><tr><th>Reg. No.</th><th>Student Name</th><th>Class</th><th>Guardian</th><th>Mobile</th><th>Phone</th><th>Nepali DOB</th><th>Route</th><th>Caste</th><th class="amount">Dues</th>${isAccountant()?'<th>Action</th>':''}</tr></thead><tbody>${rows.map(s=>`<tr><td>${esc(s.registrationNo)}</td><td><b>${esc(s.name)}</b></td><td>${esc(s.className)}</td><td>${esc(s.guardian||s.fatherName||s.motherName||'')}</td><td>${esc(s.mobileNumber||'')}</td><td>${esc(s.phone||'')}</td><td>${esc(s.dobNp||'')}</td><td>${esc(routeById(s.routeId)?.name||'')}</td><td>${esc(s.caste||'')}</td><td class="amount ${num(s.dues)>0?'danger-text':''}">${money(s.dues)}</td>${isAccountant()?`<td class="nowrap"><button class="btn small" onclick="openStudentForm('${s.id}')">Edit</button> <button class="btn small" onclick="openLedgerDirect('${s.id}')">Fee Card</button> <button class="btn small red" onclick="deleteOnlineStudent('${s.id}')">Delete</button></td>`:''}</tr>`).join('')}</tbody></table></div>`:`<div class="empty">No students found for this filter.</div>`;
 };
 
-/* Online Scholarship writer. Exact paid cells stay disabled by v12 receipt-item locking. */
+/* Online personal fee adjustment: distinguish historical opening adjustments from scholarships.
+   No mutation of receipts. Each fee item already paid remains locked. */
+function v25AdjustmentReason(o){return String(o?.reason||'Scholarship');}
+function v25IsScholarship(o){return v25AdjustmentReason(o)==='Scholarship';}
+function v25ScholarshipSummary(s,year){
+  const items=(db.overrides||[]).filter(o=>o.studentId===s.id&&String(o.year)===String(year)&&o.active!==false&&v25IsScholarship(o));
+  const amount=items.reduce((a,o)=>a+Math.max(0,num(o.baseAmount)-num(o.amount)),0);
+  return {items,amount};
+}
 openScholarshipMatrix=function(studentId,year){
   const s=studentById(studentId);if(!s||!isAccountant())return;const rows=scholarshipRows(s,year);
-  openModal('FEE CARD',`Scholarship — ${s.name}`,`<div class="scholarship-wrap"><table class="scholarship-table"><thead><tr><th>Fee Head</th>${NP_MONTHS.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><th>${esc(row.label)}</th>${NP_MONTHS.map((m,mi)=>{
+  const summary=v25ScholarshipSummary(s,year);
+  openModal('FEE CARD',`Fee Adjustments — ${s.name}`,`<div class="info"><b>Two different purposes:</b> Use <b>Opening / Already Settled</b> to make earlier months zero when the school began using this system mid-year. Use <b>Scholarship</b> only for a real concession given to a student. These two are tracked separately. Already-received fee items stay locked.</div>
+  <div class="scholarship-summary"><strong>Recorded Scholarship: ${money(summary.amount)}</strong><span>${summary.items.length} fee item(s) with scholarship adjustments</span></div>
+  <div class="scholarship-controls"><label for="v25AdjustmentReason">Reason for cells changed during this save</label><select id="v25AdjustmentReason"><option value="Opening / Already Settled">Opening / Already Settled (not scholarship)</option><option value="Scholarship">Scholarship (actual concession)</option></select><small>Only changed cells are saved. Existing adjustments that you do not change keep their original reason.</small></div>
+  <div class="scholarship-wrap"><table class="scholarship-table"><thead><tr><th>Fee Head</th>${NP_MONTHS.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><th>${esc(row.label)}</th>${NP_MONTHS.map((m,mi)=>{
     const base=scholarshipBaseAmount(s,year,mi,row.type,row.refId),ov=overrideFor(s.id,String(year),mi,row.type,row.refId),effective=ov?num(ov.amount):base;
-    if(base===null)return '<td class="na-cell">0</td>';
+    if(base===null)return '<td class="na-cell">—</td>';
     const locked=v12ItemProcessed(s,year,mi,{type:row.type,refId:row.refId,label:row.label});
-    return `<td class="${locked?'locked-cell':''}"><input class="schCell" data-type="${row.type}" data-ref="${row.refId}" data-label="${esc(row.label)}" data-month="${mi}" data-base="${base}" type="number" min="0" step="1" value="${num(effective)}" ${locked?'disabled title="This exact fee item was already received"':''}>${locked?'<span class="mini-lock">PAID</span>':''}</td>`;
-  }).join('')}</tr>`).join('')}</tbody></table></div><div class="form-actions scholarship-actions"><button class="btn red" id="removeScholarship">Remove Unpaid Scholarship Changes</button><button class="btn" onclick="closeModal()">Close</button><button class="btn primary" id="saveScholarship">Save Online Scholarship</button></div>`);
-
+    return `<td class="${locked?'locked-cell':''}"><input class="schCell" data-type="${esc(row.type)}" data-ref="${esc(row.refId)}" data-label="${esc(row.label)}" data-month="${mi}" data-base="${base}" data-original="${num(effective)}" type="number" min="0" step="0.01" value="${num(effective)}" ${locked?'disabled title="This exact fee item was already received"':''}>${locked?'<span class="mini-lock">PAID</span>':ov?`<span class="sch-note">${v25IsScholarship(ov)?'Scholarship':'Opening adjustment'}</span>`:''}</td>`;
+  }).join('')}</tr>`).join('')}</tbody></table></div>
+  <div class="form-actions scholarship-actions"><button class="btn red" id="removeScholarship">Remove Unpaid Adjustments</button><button class="btn" onclick="closeModal()">Close</button><button class="btn primary" id="saveScholarship">Save Online Changes</button></div>`);
   $('#saveScholarship').onclick=async()=>{
     const btn=$('#saveScholarship'),old=btn.textContent;btn.disabled=true;btn.textContent='Saving...';
     try{
-      // Refresh active receipts first so a fee paid on another device is not edited here.
       await v17LoadOnlineReceipts();
+      const reason=$('#v25AdjustmentReason').value;
       const ops=[];
-      $$('.schCell:not(:disabled)').forEach(inp=>{
-        const type=inp.dataset.type,refId=inp.dataset.ref,mi=num(inp.dataset.month),base=Math.max(0,num(inp.dataset.base)),val=Math.max(0,num(inp.value));
-        const label=inp.dataset.label||'';
-        if(v12ItemProcessed(s,year,mi,{type,refId,label}))return;
+      for(const inp of $$('.schCell:not(:disabled)')){
+        const type=inp.dataset.type,refId=inp.dataset.ref,mi=num(inp.dataset.month),base=Math.max(0,num(inp.dataset.base));
+        if(inp.value.trim()===''||!Number.isFinite(Number(inp.value))||Number(inp.value)<0)throw new Error('Enter a valid non-negative amount in each changed cell.');
+        const val=Number(inp.value),original=num(inp.dataset.original),label=inp.dataset.label||'';
+        if(Math.abs(val-original)<0.0001)continue;
+        if(v12ItemProcessed(s,year,mi,{type,refId,label}))throw new Error('This fee item has been paid since this window opened. Refresh and retry.');
         const existing=overrideFor(s.id,String(year),mi,type,refId);
         if(Math.abs(val-base)<0.0001){
-          if(existing?.id) ops.push({kind:'deactivate',id:existing.id});
+          if(existing?.id)ops.push({kind:'deactivate',id:existing.id});
         }else if(existing?.id){
-          ops.push({kind:'update',id:existing.id,payload:{base_amount:base,override_amount:val,reason:'Scholarship',active:true}});
+          ops.push({kind:'update',id:existing.id,payload:{base_amount:base,override_amount:val,reason,active:true}});
         }else{
-          ops.push({kind:'insert',payload:{student_uuid:s.studentUuid||studentMasterId(s),academic_year:String(year),month_no:mi+1,item_type:type,fee_head_id:type==='fee'?refId:null,route_id:type==='transport'?refId:null,base_amount:base,override_amount:val,reason:'Scholarship',active:true}});
+          ops.push({kind:'insert',payload:{student_uuid:s.studentUuid||studentMasterId(s),academic_year:String(year),month_no:mi+1,item_type:type,fee_head_id:type==='fee'?refId:null,route_id:type==='transport'?refId:null,base_amount:base,override_amount:val,reason,active:true}});
         }
-      });
+      }
       for(const op of ops){
         let result;
         if(op.kind==='deactivate')result=await sb.from('student_fee_overrides').update({active:false}).eq('override_id',op.id);
@@ -2619,14 +2649,12 @@ openScholarshipMatrix=function(studentId,year){
         else result=await sb.from('student_fee_overrides').insert(op.payload);
         if(result.error)throw result.error;
       }
-      await v17LoadOnlineOverrides();
-      closeModal();drawStudentReport();toast(ops.length?'Scholarship saved online.':'No Scholarship change to save.');
-    }catch(error){console.error(error);toast('Scholarship save failed: '+(error?.message||'Unknown error'));}
-    finally{if(btn){btn.disabled=false;btn.textContent=old;}}
+      await v17LoadOnlineOverrides();closeModal();drawStudentReport();toast(ops.length?'Personal fee changes saved online.':'No amount changed.');
+    }catch(error){console.error(error);alert('Adjustment save failed. Some earlier cells may have saved if several were changed. Refresh before retrying.\n\n'+(error?.message||'Unknown error'));}
+    finally{btn.disabled=false;btn.textContent=old;}
   };
-
   $('#removeScholarship').onclick=async()=>{
-    if(!confirm('Remove Scholarship changes from all unpaid fee items for this student/year?'))return;
+    if(!confirm('Remove ALL unpaid personal fee adjustments (including opening adjustments and scholarships) for this student and year?'))return;
     const btn=$('#removeScholarship'),old=btn.textContent;btn.disabled=true;btn.textContent='Removing...';
     try{
       await v17LoadOnlineReceipts();
@@ -2634,14 +2662,10 @@ openScholarshipMatrix=function(studentId,year){
         const label=o.type==='transport'?'Transportation Fee':(feeHeadById(o.refId)?.name||'');
         return !v12ItemProcessed(s,year,o.monthIndex,{type:o.type,refId:o.refId,label});
       }).map(o=>o.id).filter(Boolean);
-      if(ids.length){
-        const {error}=await sb.from('student_fee_overrides').update({active:false}).in('override_id',ids);
-        if(error)throw error;
-      }
-      await v17LoadOnlineOverrides();
-      closeModal();drawStudentReport();toast(ids.length?'Unpaid Scholarship changes removed online.':'No unpaid Scholarship changes found.');
-    }catch(error){console.error(error);toast('Scholarship remove failed: '+(error?.message||'Unknown error'));}
-    finally{if(btn){btn.disabled=false;btn.textContent=old;}}
+      if(ids.length){const {error}=await sb.from('student_fee_overrides').update({active:false}).in('override_id',ids);if(error)throw error;}
+      await v17LoadOnlineOverrides();closeModal();drawStudentReport();toast(ids.length?'Unpaid adjustments removed.':'No unpaid adjustments found.');
+    }catch(error){console.error(error);alert('Unable to remove adjustments: '+(error?.message||'Unknown error'));}
+    finally{btn.disabled=false;btn.textContent=old;}
   };
 };
 window.openScholarshipMatrix=openScholarshipMatrix;
@@ -2934,7 +2958,7 @@ drawPaymentCalc=function(){
   const discount=Math.min(Math.max(0,num(paymentState.discount)),grand),net=Math.max(0,grand-discount);
   paymentState.cashReceived=Math.max(0,num(paymentState.cashReceived));paymentState.bankReceived=Math.max(0,num(paymentState.bankReceived));paymentState.paid=paymentState.cashReceived+paymentState.bankReceived;
   const received=paymentState.paid;
-  $('#payCalc').innerHTML=`<div class="section premium-section"><div class="section-title"><div><h3>Fee Details</h3></div></div>${items.length?`<div class="payment-lines">${items.map(i=>`<div class="payment-line"><div class="month">${i.month}</div><div class="label">${esc(i.label)}${i.overridden?' <span class="chip">Scholarship</span>':''}</div><div class="amt">${money(i.amount)}</div></div>`).join('')}</div>`:`<div class="empty">Select one or more open months.</div>`}<div class="totals-panel polished-totals" style="margin-top:12px"><div class="row"><span>Current Fee Total</span><b>${money(currentTotal)}</b></div><div class="row"><span>Old Dues</span><b>${money(oldDues)}</b></div><div class="row"><span>Discount</span><input id="payDiscount" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.discount)}"></div><div class="row grand"><span>Net Payable</span><b id="payNet">${money(net)}</b></div><div class="row split-receive-row"><span>Cash Received</span><input id="payCashReceived" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.cashReceived)}"></div><div class="row split-receive-row"><span>Bank Received</span><input id="payBankReceived" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.bankReceived)}"></div><div class="row"><span><b>Total Received</b></span><b id="payTotalReceived">${money(received)}</b></div><div class="row"><span>New Dues / Balance</span><b id="payNewDues" class="stat-red">${money(Math.max(0,net-received))}</b></div><div class="row"><span>Advance</span><b id="payAdvance">${money(Math.max(0,received-net))}</b></div></div><div class="form-actions" style="margin-top:14px"><button class="btn primary big" id="savePayment" ${(paymentState.selectedMonths.length||oldDues>0)?'':'disabled'}>Save & Print Receipt</button></div></div>`;
+  $('#payCalc').innerHTML=`<div class="section premium-section"><div class="section-title"><div><h3>Fee Details</h3></div></div>${items.length?`<div class="payment-lines">${items.map(i=>`<div class="payment-line"><div class="month">${i.month}</div><div class="label">${esc(i.label)}${i.overridden?' <span class="chip">Adjusted</span>':''}</div><div class="amt">${money(i.amount)}</div></div>`).join('')}</div>`:`<div class="empty">Select one or more open months.</div>`}<div class="totals-panel polished-totals" style="margin-top:12px"><div class="row"><span>Current Fee Total</span><b>${money(currentTotal)}</b></div><div class="row"><span>Old Dues</span><b>${money(oldDues)}</b></div><div class="row"><span>Discount</span><input id="payDiscount" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.discount)}"></div><div class="row grand"><span>Net Payable</span><b id="payNet">${money(net)}</b></div><div class="row split-receive-row"><span>Cash Received</span><input id="payCashReceived" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.cashReceived)}"></div><div class="row split-receive-row"><span>Bank Received</span><input id="payBankReceived" inputmode="decimal" type="number" min="0" step="1" value="${num(paymentState.bankReceived)}"></div><div class="row"><span><b>Total Received</b></span><b id="payTotalReceived">${money(received)}</b></div><div class="row"><span>New Dues / Balance</span><b id="payNewDues" class="stat-red">${money(Math.max(0,net-received))}</b></div><div class="row"><span>Advance</span><b id="payAdvance">${money(Math.max(0,received-net))}</b></div></div><div class="form-actions" style="margin-top:14px"><button class="btn primary big" id="savePayment" ${(paymentState.selectedMonths.length||oldDues>0)?'':'disabled'}>Save & Print Receipt</button></div></div>`;
   const bankSelect=$('#payBank'),bankHint=$('#payBankHint');
   const recalc=()=>{
     paymentState.discount=Math.min(Math.max(0,num($('#payDiscount')?.value)),grand);
@@ -5258,3 +5282,21 @@ const v24OpenFeePlanFormOld=openFeePlanForm;
 openFeePlanForm=async function(id=''){try{await v24LoadCategories();v24OpenFeePlanFormOld(id)}catch(e){alert(e.message)}};
 const v24RenderAnnualStatementOld=typeof renderAnnualFeeStatement==='function'?renderAnnualFeeStatement:null;
 if(v24RenderAnnualStatementOld)renderAnnualFeeStatement=function(){v24LoadCategories().then(()=>{v24RenderAnnualStatementOld();}).catch(e=>alert(e.message));};
+
+/* V25: place actual scholarship statement on the Fee Card (neutral styling). */
+const v25DrawStudentReportPrevious=drawStudentReport;
+drawStudentReport=function(...args){
+  const result=v25DrawStudentReportPrevious.apply(this,args);
+  const s=studentById($('#searchStudent')?.value),year=$('#searchYear')?.value;
+  const host=$('#studentReportHost');
+  if(s&&year&&host&&isAccountant()){
+    const summary=v25ScholarshipSummary(s,year);
+    const section=[...host.querySelectorAll('.section')].find(node=>node.textContent.includes('Scholarship'));
+    if(section){
+      const statement=document.createElement('div');statement.className='scholarship-statement-v25';
+      statement.innerHTML=`<strong>Actual Scholarship: ${money(summary.amount)}</strong><span>${summary.items.length} adjusted fee items · Opening/Already Settled amounts are excluded.</span>`;
+      section.appendChild(statement);
+    }
+  }
+  return result;
+};
