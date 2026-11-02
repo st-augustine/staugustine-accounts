@@ -1935,9 +1935,8 @@ async function v15LoadOnlineStudents(){
   const {data,error}=await sb.from('students')
     .select('id,created_at,student_uuid,academic_year,registration_no,class_name,student_name,roll_no,dob_np,gender,caste,category,father_name,mother_name,guardian_name,mobile_number,phone,route_id,opening_dues,dues,advance,active,perm_country,perm_province,perm_district,perm_municipality,perm_ward,temp_same_as_permanent,temp_country,temp_province,temp_district,temp_municipality,temp_ward,admit_hall_no,created_np_date,year_end_status,year_end_updated_to,archived_np_date,archive_reason,archived_at,updated_at')
     .eq('active',true)
-    .order('academic_year',{ascending:false})
-    .order('class_name',{ascending:true})
-    .order('student_name',{ascending:true});
+    .order('created_at',{ascending:true})
+    .order('registration_no',{ascending:true});
   if(error) throw error;
   db.students=(data||[]).map(v15StudentFromRow);
 }
@@ -4986,3 +4985,216 @@ window.v17RenderSavedReceiptToWindow=v17RenderSavedReceiptToWindow;
   window.renderSettings=renderSettings;
 })();
 /* ================ END V22 ACCOUNTANT OWN PASSWORD FIX ================ */
+
+
+/* ===== V22 SAFE STUDENT EXCEL BULK ENTRY =====
+   Accountant only. Template: Excel .xlsx (SheetJS), import: .xlsx/.xls/.csv.
+   No existing student is modified. Preview validations precede any writes.
+   Supabase public.students is the sole destination; never localStorage.
+*/
+const V22_STUDENT_COLUMNS=['S.N.','Academic Year','Class','Roll No.','Student Name','Gender','Nepali DOB','Caste','Category','Father Name','Mother Name','Guardian Name','Mobile Number','Emergency Phone','Route','Previous Dues','Advance','Permanent Province','Permanent District','Permanent Municipality','Permanent Ward','Temporary Province','Temporary District','Temporary Municipality','Temporary Ward'];
+let v22ImportRows=[];
+const v22Trim=v=>String(v??'').trim();
+const v22Key=v=>v22Trim(v).toLocaleLowerCase().replace(/\s+/g,' ');
+function v22DownloadTemplate(){
+  if(!isAccountant())return unauthorized();
+  const y=getYear();
+  const rows=[V22_STUDENT_COLUMNS,
+    [1,y,'Class 1',1,'SAMPLE STUDENT ONE','Female','2075-01-15','','New','Father Sample','','Guardian Sample','9800000000','','',0,0,'Koshi','Ilam','Suryodaya','11','','','',''],
+    [2,y,'Class 2',1,'SAMPLE STUDENT TWO','Male','','','Old','','','','','','',1500,0,'','','','','','','','']];
+  // Examples only: spreadsheet must be edited before importing.
+  if(window.XLSX){
+    const book=XLSX.utils.book_new();
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=V22_STUDENT_COLUMNS.map(x=>({wch:Math.max(14,Math.min(27,x.length+5))}));
+    XLSX.utils.book_append_sheet(book,ws,'Student Entry');
+    XLSX.writeFile(book,'Student_Entry_Template.xlsx');
+  }else{
+    const csv=rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='Student_Entry_Template.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2500);
+    toast('Excel library unavailable; downloaded Excel-compatible CSV instead.');
+  }
+}
+function v22ReadCsv(raw){
+  const out=[];let row=[],field='',quoted=false;
+  for(let i=0;i<raw.length;i++){
+    const c=raw[i];
+    if(c==='"'){if(quoted&&raw[i+1]==='"'){field+='"';i++;}else quoted=!quoted;}
+    else if(c===','&&!quoted){row.push(field);field='';}
+    else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&raw[i+1]==='\n')i++;row.push(field);out.push(row);row=[];field='';}
+    else field+=c;
+  }
+  if(quoted)throw new Error('CSV has an unclosed quoted field.');
+  if(field!==''||row.length){row.push(field);out.push(row);}return out;
+}
+async function v22ReadFile(file){
+  const lower=file.name.toLowerCase();
+  if(lower.endsWith('.csv'))return v22ReadCsv((await file.text()).replace(/^\ufeff/,''));
+  if(!/\.(xlsx|xls)$/.test(lower))throw new Error('Select an Excel .xlsx/.xls or .csv file.');
+  if(!window.XLSX)throw new Error('Excel reading library is not loaded. Check internet and refresh, or Save As CSV UTF-8 in Excel.');
+  const buf=await file.arrayBuffer(); const workbook=XLSX.read(buf,{type:'array'});
+  const sheet=workbook.Sheets[workbook.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet,{header:1,raw:false,defval:''});
+}
+function v22ParseRows(sheet){
+  if(!sheet.length)throw new Error('Spreadsheet is empty.');
+  const header=sheet[0].map(v22Trim);
+  const missing=V22_STUDENT_COLUMNS.filter(c=>!header.includes(c));
+  if(missing.length)throw new Error('Missing columns: '+missing.join(', '));
+  const result=[];
+  for(let i=1;i<sheet.length;i++){
+    const data=sheet[i];if(!data||data.every(x=>!v22Trim(x)))continue;
+    const obj={};V22_STUDENT_COLUMNS.forEach(c=>obj[c]=v22Trim(data[header.indexOf(c)]));
+    result.push({line:i+1,values:obj,errors:[]});
+  }
+  return result;
+}
+function v22Validate(rows){
+  const seen=new Set();const existing=new Set((db.students||[]).filter(s=>s.active!==false).map(s=>v22Key(s.year)+'|'+v22Key(s.className)+'|'+v22Key(s.name)));
+  rows.forEach(item=>{
+    const o=item.values,errors=[];const y=o['Academic Year']||getYear();
+    const cls=CLASSES.find(c=>v22Key(c)===v22Key(o.Class));
+    const routeName=o.Route;
+    const route=(db.routes||[]).find(r=>r.active!==false&&v22Key(r.name)===v22Key(routeName));
+    if(!/^\d{4}$/.test(y))errors.push('Invalid academic year');
+    if(!cls)errors.push('Class not found');
+    if(!o['Student Name'])errors.push('Student Name required');
+    if(routeName&&!route)errors.push('Route not found: '+routeName);
+    for(const key of ['Previous Dues','Advance']){
+      const val=o[key];if(val!==''&&(!Number.isFinite(Number(val.replace(/,/g,'')))||Number(val.replace(/,/g,''))<0))errors.push('Invalid '+key);
+    }
+    if(o.Gender&&!['Male','Female','Other'].some(v=>v22Key(v)===v22Key(o.Gender)))errors.push('Invalid gender');
+    if(o.Category&&!['New','Old'].some(v=>v22Key(v)===v22Key(o.Category)))errors.push('Invalid category');
+    const k=v22Key(y)+'|'+v22Key(cls||o.Class)+'|'+v22Key(o['Student Name']);
+    item.sameNameAlert=(seen.has(k)||existing.has(k));
+    seen.add(k);
+    item.year=y;item.className=cls;item.routeId=route?.id||null;item.errors=errors;
+  });
+  return rows.filter(x=>x.errors.length).length;
+}
+function v22DrawPreview(){
+  const host=$('#v22ImportPreview');if(!host)return;
+  const invalid=v22Validate(v22ImportRows),valid=v22ImportRows.length-invalid;const sameNames=v22ImportRows.filter(x=>x.sameNameAlert).length;
+  host.innerHTML=`<p><b>${v22ImportRows.length}</b> rows checked · <b>${valid}</b> ready · <b>${invalid}</b> with errors · <b>${sameNames}</b> same-name notices. Student order follows Excel row order. No existing records will be overwritten.</p>`+
+  `<div class="table-wrap"><table><thead><tr><th>Excel Row</th><th>Class</th><th>Roll</th><th>Student</th><th>Route</th><th>Previous Dues</th><th>Validation</th></tr></thead><tbody>`+
+  v22ImportRows.slice(0,300).map(x=>`<tr><td>${x.line}</td><td>${esc(x.values.Class)}</td><td>${esc(x.values['Roll No.'])}</td><td>${esc(x.values['Student Name'])}</td><td>${esc(x.values.Route)}</td><td>${esc(x.values['Previous Dues'])}</td><td class="${x.errors.length?'danger-text':'good-text'}">${esc(x.errors.join('; ')||(x.sameNameAlert?'Same name — confirmation needed':'Ready'))}</td></tr>`).join('')+`</tbody></table></div>`+
+  (v22ImportRows.length>300?'<p>Preview shows first 300 rows; all rows are validated.</p>':'')+
+  `<button class="btn primary" id="v22SaveImport" ${invalid||!valid?'disabled':''}>Import ${valid} Students Online</button><p id="v22ImportStatus" class="card-note"></p>`;
+  const btn=$('#v22SaveImport');if(btn)btn.onclick=v22SaveAll;
+}
+function v22StudentPayload(x,reg){
+  const o=x.values,nullable=v=>v22Trim(v)||null,amount=v=>Math.max(0,Number(v22Trim(v).replace(/,/g,''))||0);
+  const dues=amount(o['Previous Dues']);
+  return {academic_year:x.year,registration_no:reg,class_name:x.className,student_name:o['Student Name'],
+    roll_no:nullable(o['Roll No.']),dob_np:nullable(o['Nepali DOB']),gender:nullable(o.Gender),caste:nullable(o.Caste),category:v22Key(o.Category)==='old'?'Old':'New',
+    father_name:nullable(o['Father Name']),mother_name:nullable(o['Mother Name']),guardian_name:nullable(o['Guardian Name']),mobile_number:nullable(o['Mobile Number']),phone:nullable(o['Emergency Phone']),
+    route_id:x.routeId,opening_dues:dues,dues,advance:amount(o.Advance),active:true,
+    perm_country:'Nepal',perm_province:nullable(o['Permanent Province']),perm_district:nullable(o['Permanent District']),perm_municipality:nullable(o['Permanent Municipality']),perm_ward:nullable(o['Permanent Ward']),
+    temp_same_as_permanent:false,temp_country:'Nepal',temp_province:nullable(o['Temporary Province']),temp_district:nullable(o['Temporary District']),temp_municipality:nullable(o['Temporary Municipality']),temp_ward:nullable(o['Temporary Ward']),created_np_date:workingDate()};
+}
+async function v22SaveAll(){
+  if(!isAccountant())return;
+  const invalid=v22Validate(v22ImportRows);if(invalid){toast('Fix all validation errors first.');return;}
+  const duplicates=v22ImportRows.filter(x=>x.sameNameAlert);
+  if(duplicates.length){const preview=duplicates.slice(0,12).map(x=>'Row '+x.line+': '+x.values['Student Name']+' ('+x.className+')').join('\n');if(!confirm('These '+duplicates.length+' names are repeated in the same class/year, either in this file or the existing records:\n'+preview+'\n\nAre they DIFFERENT students? Press OK (Yes) to add them separately; Cancel to stop.'))return;}
+  if(!confirm(`Import ${v22ImportRows.length} NEW students in Excel row order into Supabase? Existing students will NOT be updated. Please ensure a backup exists.`))return;
+  const btn=$('#v22SaveImport'),status=$('#v22ImportStatus');btn.disabled=true;
+  let savedCount=0;
+  try{
+    for(const item of v22ImportRows){
+      const reg=await v15NextRegistrationNo();
+      const {data,error}=await sb.from('students').insert(v22StudentPayload(item,reg)).select().single();
+      if(error)throw new Error('Excel row '+item.line+': '+error.message);
+      db.students.push(v15StudentFromRow(data));savedCount++;
+      status.textContent=`Saved ${savedCount} of ${v22ImportRows.length}...`;
+    }
+    toast('Successfully imported '+savedCount+' students online.');
+    v22ImportRows=[];renderStudents();
+  }catch(e){
+    console.error('Bulk student import stopped:',e);
+    status.textContent=`STOPPED. ${savedCount} student(s) saved successfully. ${e.message}. Do not retry unchanged file; refresh and remove already imported students from the sheet.`;
+    toast('Import stopped after '+savedCount+' students. See details.');
+    await v15RefreshStudentMaster().catch(console.error);
+  }finally{btn.disabled=false;}
+}
+async function v22HandleImportFile(e){
+  const file=e.target.files?.[0];if(!file)return;
+  const host=$('#v22ImportPreview');host.innerHTML='Reading and validating...';
+  try{v22ImportRows=v22ParseRows(await v22ReadFile(file));if(!v22ImportRows.length)throw new Error('No student rows in this file.');v22DrawPreview();}
+  catch(error){v22ImportRows=[];host.textContent='Import file error: '+error.message;}
+}
+const _v22RenderStudents=renderStudents;
+renderStudents=function(){
+  _v22RenderStudents();
+  if(!isAccountant())return;
+  const section=$('#content .section');if(!section)return;
+  const panel=document.createElement('div');panel.className='section';panel.id='v22StudentBulk';
+  panel.innerHTML=`<div class="section-title"><div><h3>Student Excel Entry / Bulk Import</h3><p>Download an Excel sample, enter students by class or all classes, select an existing Route name, then Preview and Import Online.</p></div></div>
+  <div class="toolbar"><button type="button" class="btn green" id="v22Template">Download Sample Excel</button><label class="field">Choose completed Excel / CSV<input id="v22Upload" type="file" accept=".xlsx,.xls,.csv" /></label></div>
+  <div class="card-note" style="margin-top:10px">Keep the first header row unchanged. One student per row. Use exact Class names (Nursery, LKG, UKG, Class 1...Class 10), and Route names already configured in Fee Setup. Leave Route blank for no bus. Previous Dues becomes both opening and current dues for NEW students. Delete sample rows before actual import. One class or multiple classes can be imported in one file.</div>
+  <div id="v22ImportPreview" style="margin-top:12px"></div>`;
+  section.parentNode.insertBefore(panel,section.nextSibling);
+  $('#v22Template').onclick=v22DownloadTemplate;
+  $('#v22Upload').onchange=v22HandleImportFile;
+};
+
+
+/* V23: guarded online master deletion; historical financial references must remain intact. */
+async function v23HasReference(table,column,id){
+  // A failed or forbidden lookup blocks deletion; never assume an inaccessible table is empty.
+  const {data,error}=await sb.from(table).select(column).eq(column,id).limit(1);
+  if(error)throw new Error(`Unable to verify ${table}: ${error.message}`);
+  return (data||[]).length>0;
+}
+async function v23DeleteMaster(kind,id){
+  if(!isAccountant()||!sb)return toast('Accountant login required.');
+  const isRoute=kind==='route';
+  const item=isRoute?(db.routes||[]).find(x=>x.id===id):(db.feeHeads||[]).find(x=>x.id===id);
+  if(!item)return toast('Item not found. Refresh Fee Setup.');
+  const name=isRoute?'Route':'Fee Head';
+  const lookups=isRoute?[
+    ['students','route_id'],['transport_fee_plans','route_id'],
+    ['fee_receipt_items','route_id'],['student_fee_overrides','route_id']
+  ]:[
+    ['fee_plans','fee_head_id'],['fee_receipt_items','fee_head_id'],
+    ['student_fee_overrides','fee_head_id']
+  ];
+  try{
+    for(const [table,col] of lookups){
+      if(await v23HasReference(table,col,id)){
+        alert(`${name} "${item.name}" cannot be deleted because it is already used in ${table}. Use Edit > Inactive instead, to preserve student records and financial history.`);
+        return;
+      }
+    }
+    if(!confirm(`Permanently delete unused ${name} "${item.name}"? This cannot be undone.`))return;
+    // Recheck immediately before deletion; database FK/RLS policies must also enforce integrity.
+    for(const [table,col] of lookups){
+      if(await v23HasReference(table,col,id))throw new Error(`Deletion stopped: item is now referenced in ${table}.`);
+    }
+    const table=isRoute?'routes':'fee_heads',key=isRoute?'route_id':'fee_head_id';
+    const {data,error}=await sb.from(table).delete().eq(key,id).select(key);
+    if(error)throw error;
+    if(!data||data.length!==1)throw new Error('No row was deleted. Check Supabase DELETE permissions and RLS rules.');
+    await v16RefreshFeeSetup();renderFeeStructure();toast(`${name} deleted online.`);
+  }catch(error){console.error(error);alert('Delete cancelled: '+(error?.message||String(error))+'\nNo local records were changed.');}
+}
+const _v23DrawRoutes=drawRoutes;
+drawRoutes=function(){
+  _v23DrawRoutes();
+  const h=$('#routeHost');if(!h)return;
+  h.querySelectorAll('tbody tr').forEach((tr,i)=>{
+    const r=(db.routes||[])[i];if(!r)return;
+    const td=tr.lastElementChild;
+    const btn=document.createElement('button');btn.type='button';btn.className='btn small red';btn.style.marginLeft='6px';btn.textContent='Delete';btn.onclick=()=>v23DeleteMaster('route',r.id);td?.appendChild(btn);
+  });
+};
+const _v23DrawFeeHeads=drawFeeHeads;
+drawFeeHeads=function(){
+  _v23DrawFeeHeads();
+  const h=$('#headHost');if(!h)return;
+  h.querySelectorAll('tbody tr').forEach((tr,i)=>{
+    const x=(db.feeHeads||[])[i];if(!x)return;
+    const td=tr.lastElementChild;
+    const btn=document.createElement('button');btn.type='button';btn.className='btn small red';btn.style.marginLeft='6px';btn.textContent='Delete';btn.onclick=()=>v23DeleteMaster('head',x.id);td?.appendChild(btn);
+  });
+};
