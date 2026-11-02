@@ -5339,3 +5339,36 @@ drawStudentReport=function(...args){
   }
   return result;
 };
+
+
+/* V31 — On-screen Fee Card pending total only. A5 printing is unchanged. */
+(function(){
+  const previousDrawStudentReport=drawStudentReport;
+  drawStudentReport=function(...args){
+    const result=previousDrawStudentReport.apply(this,args);
+    const key=$('#searchStudent')?.value||'';
+    const year=$('#searchYear')?.value||'';
+    const student=(typeof studentByRecordKey==='function'?studentByRecordKey(key):null)||studentById(key);
+    const host=$('#studentReportHost');
+    if(!student||!year||!host)return result;
+    const heading=[...host.querySelectorAll('.section-title h3')].find(h=>h.textContent.trim()==='Month-wise Fee Card Details');
+    const section=heading?.closest('.section');
+    if(!section||section.querySelector('.v31-pending-total'))return result;
+    // Use exactly the unpaid-item calculation used by the screen's Pending column.
+    // Paid/processed fee items and zero adjustments are not added a second time.
+    const total=NP_MONTHS.reduce((acc,_month,i)=>acc+sum(v12UnpaidMonthCharges(student,year,i),item=>item.amount),0);
+    const summary=document.createElement('div');
+    summary.className='v31-pending-total';
+    summary.style.cssText='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-top:14px;padding:15px 17px;border:2px solid #245f89;border-radius:8px;background:#f0f7fc;';
+    const label=document.createElement('strong');
+    label.style.cssText='font-size:17px;color:#173f61;';
+    label.textContent='TOTAL PENDING AMOUNT';
+    const amount=document.createElement('strong');
+    amount.style.cssText='font-size:25px;color:#a61f1f;white-space:nowrap;';
+    amount.textContent=money(total);
+    summary.append(label,amount);
+    section.appendChild(summary);
+    return result;
+  };
+  window.drawStudentReport=drawStudentReport;
+})();
