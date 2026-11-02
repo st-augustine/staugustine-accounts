@@ -4515,6 +4515,7 @@ window.v17RenderSavedReceiptToWindow=v17RenderSavedReceiptToWindow;
 })();
 /* ================== END V19.9 FINAL LIVE CHECK ================== */
 
+/* V33: A5 grand total = same unpaid month fees + remaining previous dues as screen. */
 /* ==================== V19.10 FINAL PRINT POLISH ==================== */
 (function(){
   function v1910Issuer(){
@@ -4564,8 +4565,11 @@ window.v17RenderSavedReceiptToWindow=v17RenderSavedReceiptToWindow;
       const details=items.length?items.map(x=>`${esc(x.label||'Fee')} — ${money(x.amount)}`).join(' · '):'-';
       return `<tr><td><b>${esc(m)}</b></td><td class="status ${closed?'paid':'due'}">${closed?'PAID / PROCESSED':'DUE / OPEN'}</td><td>${details}</td><td class="num">${money(total)}</td></tr>`;
     }).join('');
-    const html=`<div class="fc-a5"><div class="fc-frame"><div class="fc-head"><div class="fc-logo">${logo}</div><div class="fc-school"><h1>${esc(db.settings.schoolName)}</h1><p>${esc(db.settings.address||'')}</p><h2>FEE CARD</h2></div><div></div></div><div class="fc-meta"><div><b>Student:</b> ${esc(s.name||'-')}</div><div><b>Class:</b> ${esc(s.className||'-')}</div><div><b>Registration:</b> ${esc(s.registrationNo||'-')}</div><div><b>Academic Year:</b> ${esc(y)}</div><div><b>Guardian:</b> ${esc(s.guardian||s.fatherName||s.motherName||'-')}</div><div><b>Mobile:</b> ${esc(s.mobileNumber||s.phone||'-')}</div></div><table class="fc-table"><thead><tr><th>Month</th><th>Status</th><th>Fee Details</th><th>Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="fc-totals"><div><span>Yearly Fee Total</span><b>${money(annual)}</b></div><div><span>Processed Fee</span><b>${money(processed)}</b></div><div><span>Open Fee</span><b>${money(open)}</b></div><div class="current"><span>Current Dues</span><b>${money(s.dues)}</b></div></div><div class="fc-foot">Printed on Nepali Date: ${esc(typeof v196SyncToday==='function'?v196SyncToday():workingDate())}</div></div></div>`;
-    const css=`@page{size:A5 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#111}.fc-a5{width:148mm;height:210mm;padding:4mm;margin:0 auto;background:#fff}.fc-frame{height:202mm;border:2px solid #155fa0;box-shadow:inset 0 0 0 2px #d6e8f5;padding:4.5mm;display:flex;flex-direction:column;overflow:hidden}.fc-head{display:grid;grid-template-columns:20mm 1fr 20mm;align-items:center;border-bottom:1px solid #8bb3d0;padding-bottom:2mm}.fc-logo{width:18mm;height:18mm;display:grid;place-items:center}.fc-logo img{max-width:17mm;max-height:17mm;object-fit:contain}.fc-logo-fallback{font-weight:900;font-size:16px;color:#155fa0}.fc-school{text-align:center;min-width:0}.fc-school h1{margin:0;color:#155fa0;font-size:14px;font-weight:900;text-transform:uppercase;white-space:nowrap;letter-spacing:-.25px;line-height:1.05}.fc-school p{margin:1px 0;font-size:7.8px}.fc-school h2{margin:1.5mm 0 0;font-size:10.5px;letter-spacing:.08em}.fc-meta{display:grid;grid-template-columns:1fr 1fr;gap:.8mm 4mm;font-size:7.8px;margin:2mm 0}.fc-table{width:100%;border-collapse:collapse;font-size:6.7px;table-layout:fixed}.fc-table th,.fc-table td{border:1px solid #777;padding:.65mm .8mm;vertical-align:top;line-height:1.15}.fc-table th{background:#edf5fa;font-size:6.9px}.fc-table th:nth-child(1){width:16%}.fc-table th:nth-child(2){width:19%}.fc-table th:nth-child(4){width:17%;text-align:right}.fc-table .num{text-align:right;white-space:nowrap}.fc-table .status{text-align:center;font-weight:900;font-size:6.1px}.fc-table .paid{color:#0b6b35}.fc-table .due{color:#a31919}.fc-totals{margin-top:2mm;margin-left:auto;width:62%;font-size:7.4px;border-top:1px solid #777}.fc-totals>div{display:flex;justify-content:space-between;gap:8px;padding:.65mm 1mm;border-bottom:1px solid #bbb}.fc-totals .current{font-size:8px;background:#f2f7fb}.fc-foot{margin-top:auto;text-align:center;font-size:6.5px;color:#555;padding-top:1.5mm}`;
+    const unpaidMonthlyTotal=NP_MONTHS.reduce((total,_month,i)=>total+sum(v12UnpaidMonthCharges(s,y,i),item=>item.amount),0);
+    const remainingPreviousDues=Math.max(0,num(s.dues));
+    const combinedPendingTotal=unpaidMonthlyTotal+remainingPreviousDues;
+    const html=`<div class="fc-a5"><div class="fc-frame"><div class="fc-head"><div class="fc-logo">${logo}</div><div class="fc-school"><h1>${esc(db.settings.schoolName)}</h1><p>${esc(db.settings.address||'')}</p><h2>FEE CARD</h2></div><div></div></div><div class="fc-meta"><div><b>Student:</b> ${esc(s.name||'-')}</div><div><b>Class:</b> ${esc(s.className||'-')}</div><div><b>Registration:</b> ${esc(s.registrationNo||'-')}</div><div><b>Academic Year:</b> ${esc(y)}</div><div><b>Guardian:</b> ${esc(s.guardian||s.fatherName||s.motherName||'-')}</div><div><b>Mobile:</b> ${esc(s.mobileNumber||s.phone||'-')}</div></div><table class="fc-table"><thead><tr><th>Month</th><th>Status</th><th>Fee Details</th><th>Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="fc-totals"><div><span>Yearly Fee Total</span><b>${money(annual)}</b></div><div><span>Processed Fee</span><b>${money(processed)}</b></div><div><span>Open Fee</span><b>${money(open)}</b></div><div class="current"><span>Current Dues</span><b>${money(s.dues)}</b></div><div class="grand-pending"><span>TOTAL PENDING AMOUNT</span><b>${money(combinedPendingTotal)}</b></div></div><div class="fc-foot">Printed on Nepali Date: ${esc(typeof v196SyncToday==='function'?v196SyncToday():workingDate())}</div></div></div>`;
+    const css=`@page{size:A5 portrait;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#111}.fc-a5{width:148mm;height:210mm;padding:4mm;margin:0 auto;background:#fff}.fc-frame{height:202mm;border:2px solid #155fa0;box-shadow:inset 0 0 0 2px #d6e8f5;padding:4.5mm;display:flex;flex-direction:column;overflow:hidden}.fc-head{display:grid;grid-template-columns:20mm 1fr 20mm;align-items:center;border-bottom:1px solid #8bb3d0;padding-bottom:2mm}.fc-logo{width:18mm;height:18mm;display:grid;place-items:center}.fc-logo img{max-width:17mm;max-height:17mm;object-fit:contain}.fc-logo-fallback{font-weight:900;font-size:16px;color:#155fa0}.fc-school{text-align:center;min-width:0}.fc-school h1{margin:0;color:#155fa0;font-size:14px;font-weight:900;text-transform:uppercase;white-space:nowrap;letter-spacing:-.25px;line-height:1.05}.fc-school p{margin:1px 0;font-size:7.8px}.fc-school h2{margin:1.5mm 0 0;font-size:10.5px;letter-spacing:.08em}.fc-meta{display:grid;grid-template-columns:1fr 1fr;gap:.8mm 4mm;font-size:7.8px;margin:2mm 0}.fc-table{width:100%;border-collapse:collapse;font-size:6.7px;table-layout:fixed}.fc-table th,.fc-table td{border:1px solid #777;padding:.65mm .8mm;vertical-align:top;line-height:1.15}.fc-table th{background:#edf5fa;font-size:6.9px}.fc-table th:nth-child(1){width:16%}.fc-table th:nth-child(2){width:19%}.fc-table th:nth-child(4){width:17%;text-align:right}.fc-table .num{text-align:right;white-space:nowrap}.fc-table .status{text-align:center;font-weight:900;font-size:6.1px}.fc-table .paid{color:#0b6b35}.fc-table .due{color:#a31919}.fc-totals{margin-top:2mm;margin-left:auto;width:62%;font-size:7.4px;border-top:1px solid #777}.fc-totals>div{display:flex;justify-content:space-between;gap:8px;padding:.65mm 1mm;border-bottom:1px solid #bbb}.fc-totals .current{font-size:8px;background:#f2f7fb}.fc-totals .grand-pending{font-size:9px;font-weight:900;background:#eaf4ff;border-top:1.3px solid #155fa0;color:#113e68}.fc-totals .grand-pending b{color:#a31919;font-size:10px}.fc-foot{margin-top:auto;text-align:center;font-size:6.5px;color:#555;padding-top:1.5mm}`;
     const w=window.open('','_blank','width=780,height=900');
     if(!w)return toast('Allow print window for A5 Fee Card.');
     w.document.write(`<!doctype html><html><head><meta charset="UTF-8"><title>${esc(s.name)} Fee Card</title><style>${css}</style></head><body>${html}<script>setTimeout(()=>window.print(),350)<\/script></body></html>`);
@@ -5341,7 +5345,7 @@ drawStudentReport=function(...args){
 };
 
 
-/* V31 — On-screen Fee Card pending total only. A5 printing is unchanged. */
+/* V32 — Screen total includes outstanding carried dues; A5 print unchanged. */
 (function(){
   const previousDrawStudentReport=drawStudentReport;
   drawStudentReport=function(...args){
@@ -5356,7 +5360,11 @@ drawStudentReport=function(...args){
     if(!section||section.querySelector('.v31-pending-total'))return result;
     // Use exactly the unpaid-item calculation used by the screen's Pending column.
     // Paid/processed fee items and zero adjustments are not added a second time.
-    const total=NP_MONTHS.reduce((acc,_month,i)=>acc+sum(v12UnpaidMonthCharges(student,year,i),item=>item.amount),0);
+    const monthlyPending=NP_MONTHS.reduce((acc,_month,i)=>acc+sum(v12UnpaidMonthCharges(student,year,i),item=>item.amount),0);
+    // s.dues is the currently unpaid carried balance, not the original openingDues.
+    // It includes any remaining previous dues without re-adding amounts already paid.
+    const carriedDues=Math.max(0,num(student.dues));
+    const total=monthlyPending+carriedDues;
     const summary=document.createElement('div');
     summary.className='v31-pending-total';
     summary.style.cssText='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-top:14px;padding:15px 17px;border:2px solid #245f89;border-radius:8px;background:#f0f7fc;';
@@ -5368,6 +5376,11 @@ drawStudentReport=function(...args){
     amount.textContent=money(total);
     summary.append(label,amount);
     section.appendChild(summary);
+    const breakdown=document.createElement('div');
+    breakdown.className='v32-pending-breakdown';
+    breakdown.style.cssText='text-align:right;font-size:13px;margin-top:6px;color:#456;';
+    breakdown.textContent=`Unpaid Month Fees: ${money(monthlyPending)} + Remaining Old / Previous Dues: ${money(carriedDues)}`;
+    section.appendChild(breakdown);
     return result;
   };
   window.drawStudentReport=drawStudentReport;
