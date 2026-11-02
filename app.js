@@ -4779,8 +4779,8 @@ window.v17RenderSavedReceiptToWindow=v17RenderSavedReceiptToWindow;
   [
     ['drawStudentList','students',['#studentHost']],
     ['drawStudentReport','studentSearch',['#studentReportHost','#searchStudent','#searchYear']],
-    ['fillPayStudents','feePayment',['#payYear','#payClass','#payStudent','#payHost']],
-    ['drawPayPanel','feePayment',['#payStudent','#payYear','#payHost']],
+    ['fillPayStudents','feePayment',['#payYear','#payClass','#payStudentSearch','#payHost']],
+    ['drawPayPanel','feePayment',['#payStudentSearch','#payYear','#payClass','#payHost']],
     ['drawPaymentCalc','feePayment',['#payCalc']],
     ['drawReceiptRegister','receiptRegister',['#receiptRegHost']],
     ['drawQuickList','quickReceipt',['#quickList']],
@@ -5024,8 +5024,8 @@ function v22DownloadTemplate(){
   if(!isAccountant())return unauthorized();
   const y=getYear();
   const rows=[V22_STUDENT_COLUMNS,
-    [1,y,'Class 1',1,'SAMPLE STUDENT ONE','Female','2075-01-15','','New','Father Sample','','Guardian Sample','9800000000','','',0,0,'Koshi','Ilam','Suryodaya','11','','','',''],
-    [2,y,'Class 2',1,'SAMPLE STUDENT TWO','Male','','','Old','','','','','','',1500,0,'','','','','','','','']];
+    [1,y,'Class 1',1,'SAMPLE STUDENT ONE','Female','2075-01-15','',v24CategoryNames()[0]||'','Father Sample','','Guardian Sample','9800000000','','',0,0,'Koshi','Ilam','Suryodaya','11','','','',''],
+    [2,y,'Class 2',1,'SAMPLE STUDENT TWO','Male','','',v24CategoryNames()[1]||v24CategoryNames()[0]||'','','','','','','',1500,0,'','','','','','','','']];
   // Examples only: spreadsheet must be edited before importing.
   if(window.XLSX){
     const book=XLSX.utils.book_new();
@@ -5088,7 +5088,8 @@ function v22Validate(rows){
       const val=o[key];if(val!==''&&(!Number.isFinite(Number(val.replace(/,/g,'')))||Number(val.replace(/,/g,''))<0))errors.push('Invalid '+key);
     }
     if(o.Gender&&!['Male','Female','Other'].some(v=>v22Key(v)===v22Key(o.Gender)))errors.push('Invalid gender');
-    if(o.Category&&!v24CategoryNames().some(v=>v22Key(v)===v22Key(o.Category)))errors.push('Invalid category');
+    if(!o.Category)errors.push('Category required — select a category defined in Settings');
+    else if(!v26ResolveImportCategory(o.Category))errors.push('Invalid category: '+o.Category+' (must exist in Settings > Student Category)');
     const k=v22Key(y)+'|'+v22Key(cls||o.Class)+'|'+v22Key(o['Student Name']);
     item.sameNameAlert=(seen.has(k)||existing.has(k));
     seen.add(k);
@@ -5109,8 +5110,9 @@ function v22DrawPreview(){
 function v22StudentPayload(x,reg){
   const o=x.values,nullable=v=>v22Trim(v)||null,amount=v=>Math.max(0,Number(v22Trim(v).replace(/,/g,''))||0);
   const dues=amount(o['Previous Dues']);
+  if(!v26ResolveImportCategory(o.Category))throw new Error('Invalid student category on Excel row '+x.line);
   return {academic_year:x.year,registration_no:reg,class_name:x.className,student_name:o['Student Name'],
-    roll_no:nullable(o['Roll No.']),dob_np:nullable(o['Nepali DOB']),gender:nullable(o.Gender),caste:nullable(o.Caste),category:v24CategoryNames().find(v=>v22Key(v)===v22Key(o.Category))||v24DefaultCategory(),
+    roll_no:nullable(o['Roll No.']),dob_np:nullable(o['Nepali DOB']),gender:nullable(o.Gender),caste:nullable(o.Caste),category:v26ResolveImportCategory(o.Category),
     father_name:nullable(o['Father Name']),mother_name:nullable(o['Mother Name']),guardian_name:nullable(o['Guardian Name']),mobile_number:nullable(o['Mobile Number']),phone:nullable(o['Emergency Phone']),
     route_id:x.routeId,opening_dues:dues,dues,advance:amount(o.Advance),active:true,
     perm_country:'Nepal',perm_province:nullable(o['Permanent Province']),perm_district:nullable(o['Permanent District']),perm_municipality:nullable(o['Permanent Municipality']),perm_ward:nullable(o['Permanent Ward']),
@@ -5229,7 +5231,20 @@ drawFeeHeads=function(){
    Does not touch marks, payroll, existing financial records, or authentication. */
 let v24Categories=[{category_name:'New',active:true},{category_name:'Old',active:true}];
 function v24CategoryNames(){return v24Categories.filter(c=>c.active!==false).map(c=>c.category_name);}
-function v24DefaultCategory(){return v24CategoryNames().includes('New')?'New':(v24CategoryNames()[0]||'');}
+/* V26: Category master is authoritative. Old Excel short labels are accepted only
+   when the corresponding full category exists in the live master; ambiguous
+   category names are rejected rather than silently assigned a default. */
+function v26ResolveImportCategory(value){
+  const raw=String(value??'').trim();
+  if(!raw)return '';
+  const active=v24CategoryNames();
+  const direct=active.find(v=>v22Key(v)===v22Key(raw));
+  if(direct)return direct;
+  const oldAliases={'new':'New Student','old':'Old Student'};
+  const target=oldAliases[v22Key(raw)];
+  return target?(active.find(v=>v22Key(v)===v22Key(target))||''):'';
+}
+function v24DefaultCategory(){return v24CategoryNames()[0]||'';}
 function v24CategoryOptions(includeAll=false){
   return (includeAll?'<option value="All">All</option>':'')+v24CategoryNames().map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
 }
