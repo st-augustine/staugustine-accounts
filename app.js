@@ -2126,6 +2126,21 @@ openStudentForm=function(id=''){
     try{
       if(s){
         const payload=v15StudentPayloadFromForm(f,s,s.registrationNo);
+        // V28: New opening dues entered on an existing student must also be
+        // available in Fee Receive (which reads students.dues, not opening_dues).
+        // Protect any existing receipt history: do not silently reset balances.
+        const requestedOpening=Math.max(0,num(payload.opening_dues));
+        const previousOpening=Math.max(0,num(s.openingDues));
+        if(Math.abs(requestedOpening-previousOpening)>0.001){
+          const studentUuid=s.studentUuid||s.masterId||s.id;
+          const {count:receiptCount,error:receiptCheckError}=await sb.from('fee_receipts')
+            .select('receipt_id',{count:'exact',head:true}).eq('student_uuid',studentUuid);
+          if(receiptCheckError)throw new Error('Old Dues could not be verified safely: '+receiptCheckError.message);
+          if((receiptCount||0)>0){
+            throw new Error('This student already has fee receipts. Opening Dues cannot be changed by Student Edit because it could overwrite a live balance. Reconcile the old dues with the existing receipts first.');
+          }
+          payload.dues=requestedOpening;
+        }
         const {data,error}=await sb.from('students').update(payload).eq('id',s.id).select().single();
         if(error)throw error;
         const mapped=v15StudentFromRow(data);
