@@ -5385,3 +5385,92 @@ drawStudentReport=function(...args){
   };
   window.drawStudentReport=drawStudentReport;
 })();
+
+
+/* V35 Student Update: fee-card-consistent preview and guarded online posting.
+   No automatic promotion, database deletion, or background writes.
+   Requires the separately supplied V35 SQL validation patch before applying actions.
+   Underlying school fee data remains stored in Supabase. */
+(function(){
+  const refresh=async()=>{
+    await Promise.all([v15LoadOnlineStudents(),v16LoadOnlineFeeSetup(),v17LoadOnlineOverrides(),v17LoadOnlineReceipts()]);
+  };
+  const money2=value=>Math.round((Number(value)||0)*100)/100;
+  const currentRows=()=>{
+    const y=$('#updYear')?.value||'',c=$('#updClass')?.value||'';
+    return !y||!c?[]:(db.students||[]).filter(s=>String(s.year)===String(y)&&s.className===c&&s.active!==false);
+  };
+  const calc=(s,y,last)=>{
+    let unpaid=0;
+    for(let i=0;i<=last;i++)unpaid+=sum(v12UnpaidMonthCharges(s,y,i),x=>x.amount);
+    const previous=Math.max(0,num(s.dues));
+    return {unpaid:money2(unpaid),previous:money2(previous),total:money2(unpaid+previous)};
+  };
+  renderStudentUpdate=function(){
+    if(!isAccountant())return unauthorized();
+    $('#content').innerHTML=`<div class="section premium-section"><div class="section-title"><div><h3>Student Update / Year-End Promotion</h3><p>Preview unpaid fee items plus remaining old dues. Nothing is posted until you confirm.</p></div></div>
+    <div class="toolbar"><div class="field"><label>Current Academic Year</label><select id="updYear">${yearsOptions(getYear())}</select></div>
+    <div class="field"><label>Class</label><select id="updClass">${classesOptions()}</select></div>
+    <div class="field"><label>Cutoff Month</label><select id="updMonth">${NP_MONTHS.map((m,i)=>`<option value="${i}" ${i===11?'selected':''}>${m}</option>`).join('')}</select></div>
+    <button class="btn cyan" id="updLoad" type="button">Refresh & Load</button></div>
+    <p class="card-note">Promote / Repeat: Chaitra only. Dropout / Transfer: select the final month attended. Later months are not included in the pending preview. Current year receipts and fee history are retained.</p>
+    <div id="studentUpdateHost"></div></div>`;
+    $('#updLoad').onclick=async()=>{try{await refresh();drawStudentUpdate();toast('Latest online fee data loaded.');}catch(e){console.error(e);toast('Could not refresh: '+(e?.message||'Unknown error'));}};
+    $('#updYear').onchange=drawStudentUpdate;
+    $('#updClass').onchange=drawStudentUpdate;
+    $('#updMonth').onchange=drawStudentUpdate;
+    drawStudentUpdate();
+  };
+  drawStudentUpdate=function(){
+    const y=$('#updYear')?.value||'',c=$('#updClass')?.value||'',last=Number($('#updMonth')?.value??11);
+    const ny=String(Number(y)+1),rows=currentRows();
+    const host=$('#studentUpdateHost');if(!host)return;
+    if(!c){host.innerHTML='<div class="empty">Select the class to review student balances.</div>';return;}
+    if(!rows.length){host.innerHTML='<div class="empty">No active students for selected year/class.</div>';return;}
+    const summary=rows.reduce((a,s)=>a+calc(s,y,last).total,0);
+    host.innerHTML=`<div class="summary-strip flexible-summary" style="margin-top:14px"><div class="summary-box"><small>Students</small><strong>${rows.length}</strong></div><div class="summary-box"><small>Month through</small><strong>${esc(NP_MONTHS[last])}</strong></div><div class="summary-box"><small>Total Pending / Selected Class</small><strong class="danger-text">${money(money2(summary))}</strong></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Reg. No.</th><th>Student</th><th class="amount">Remaining Previous Dues</th><th class="amount">Unpaid Fees to ${esc(NP_MONTHS[last])}</th><th class="amount">TOTAL PENDING</th><th>Action</th><th>Destination Class</th><th>Existing Status</th></tr></thead><tbody>${rows.map(s=>{
+      const b=calc(s,y,last);
+      return `<tr><td>${esc(s.registrationNo)}</td><td><b>${esc(s.name)}</b></td><td class="amount">${money(b.previous)}</td><td class="amount">${money(b.unpaid)}</td><td class="amount ${b.total>0?'danger-text':''}"><b>${money(b.total)}</b></td>
+      <td><select class="updAction" data-id="${esc(s.id)}"><option value="">No Change</option><option value="Promote">Promote</option><option value="Repeat">Repeat Same Class</option><option value="Transfer">Transfer / Left School</option><option value="Dropout">Dropout</option></select></td>
+      <td><select class="updTarget" data-id="${esc(s.id)}">${CLASSES.map(k=>`<option ${k===nextClassName(s.className)?'selected':''}>${esc(k)}</option>`).join('')}</select></td><td>${esc(s.yearEndStatus||'-')}</td></tr>`;}).join('')}</tbody></table></div>
+    <div class="form-actions" style="margin-top:14px"><button class="btn primary big" id="applyStudentUpdate" type="button">Review & Apply Selected Updates</button></div>`;
+    $('#applyStudentUpdate').onclick=applyStudentUpdate;
+  };
+  applyStudentUpdate=async function(){
+    const y=$('#updYear')?.value,last=Number($('#updMonth')?.value??11),ny=String(Number(y)+1);
+    const rows=currentRows(),chosen=[];
+    for(const el of $$('.updAction')){
+      if(!el.value)continue;
+      const s=rows.find(x=>String(x.id)===String(el.dataset.id));if(!s)return alert('Student list changed. Refresh before posting.');
+      const target=$$('.updTarget').find(x=>x.dataset.id===el.dataset.id)?.value||'';
+      const due=calc(s,y,last);
+      if((el.value==='Promote'||el.value==='Repeat')&&last!==11)return alert('Promote / Repeat is allowed only through Chaitra. Choose Chaitra or change the action.');
+      if(el.value==='Promote'&&(!target||target===s.className))return alert('Choose a valid next class for '+s.name);
+      chosen.push({s,action:el.value,target,due});
+    }
+    if(!chosen.length)return toast('Choose an action for at least one student.');
+    const detail=chosen.map(x=>`${x.s.name}: ${x.action}${x.action==='Promote'?' → '+x.target:''}; Unpaid fees ${money(x.due.unpaid)} + old dues ${money(x.due.previous)} = TOTAL ${money(x.due.total)}`).join('\n');
+    if(!confirm(`ONLINE STUDENT UPDATE\nAcademic year ${y} | Cutoff: ${NP_MONTHS[last]}\n\n${detail}\n\nFor Promote/Repeat the total will become opening dues in ${ny}. Confirm only after checking the Fee Card.`))return;
+    const btn=$('#applyStudentUpdate');if(btn){btn.disabled=true;btn.textContent='Saving online…';}
+    let completed=0;
+    try{
+      // One transaction per student on the server. A later error never silently rolls back earlier completed students.
+      for(const x of chosen){
+        const {error}=await sb.rpc('sa_apply_student_update_v34',{
+          p_student_id:x.s.id,p_action:x.action,p_target_class:x.action==='Promote'?x.target:null,
+          p_cutoff_month:last+1,p_expected_old_dues:x.due.previous,p_total_pending:x.due.total,
+          p_actor:db.settings.issuedBy||null
+        });
+        if(error)throw new Error(x.s.name+': '+error.message);
+        completed++;
+      }
+      await refresh();drawStudentUpdate();toast(`${completed} student update(s) saved online.`);
+    }catch(e){console.error(e);try{await refresh();drawStudentUpdate();}catch(_e){}
+      alert(`Student update stopped. Successfully saved: ${completed}/${chosen.length}.\n${e?.message||'Unknown error'}\n\nDo not repeat successful updates. Recheck the list first. Verify V35 SQL patch is installed before posting.`);
+    }finally{const button=$('#applyStudentUpdate');if(button){button.disabled=false;button.textContent='Review & Apply Selected Updates';}}
+  };
+  window.renderStudentUpdate=renderStudentUpdate;
+  window.drawStudentUpdate=drawStudentUpdate;
+  window.applyStudentUpdate=applyStudentUpdate;
+})();
