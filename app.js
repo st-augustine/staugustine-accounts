@@ -3994,7 +3994,18 @@ window.deleteReceipt=deleteReceipt;
   /* ---------- General print helpers ---------- */
   function v195OpenPrint(title,html,page='A5 portrait',extra=''){
     const w=window.open('','_blank','width=900,height=920');if(!w)return toast('Allow pop-ups to print.');
-    w.document.write(`<!doctype html><html><head><meta charset="UTF-8"><title>${esc(title)}</title><style>@page{size:${page};margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#111}${extra}</style></head><body>${html}<script>setTimeout(()=>window.print(),350)<\/script></body></html>`);w.document.close();
+    w.document.write(`<!doctype html><html><head><meta charset="UTF-8"><title>${esc(title)}</title><style>@page{size:${page};margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#111}${extra}</style></head><body>${html}<script>
+      (async function(){
+        const imgs=Array.from(document.images);
+        await Promise.all(imgs.map(img=>img.complete?Promise.resolve():new Promise(resolve=>{
+          const fallback=setTimeout(resolve,8000);
+          img.addEventListener('load',()=>{clearTimeout(fallback);resolve();},{once:true});
+          img.addEventListener('error',()=>{clearTimeout(fallback);resolve();},{once:true});
+        })));
+        if(document.fonts&&document.fonts.ready)await document.fonts.ready;
+        setTimeout(()=>window.print(),120);
+      })();
+    <\/script></body></html>`);w.document.close();
   }
   function v195BlueSchoolName(){return '#155fa0';}
 
@@ -5568,4 +5579,76 @@ drawStudentReport=function(...args){
     grid.insertAdjacentElement('afterend',summary);
   };
   window.renderDashboard=renderDashboard;
+})();
+
+
+/* V38 — A5 Fee Receipt school logo watermark (display/print only).
+   No changes to records, payment calculation, Supabase schema or existing school logo.
+   Watermark controls are saved in this browser's localStorage. */
+(function(){
+  const KEY='sa_accounts_a5_receipt_watermark_v1';
+  const defaults={enabled:true,size:78,opacity:10};
+  function getWatermark(){
+    try{
+      const saved=JSON.parse(localStorage.getItem(KEY)||'{}');
+      return {
+        enabled:saved.enabled!==false,
+        size:Math.min(120,Math.max(25,Number(saved.size)||defaults.size)),
+        opacity:Math.min(35,Math.max(1,Number(saved.opacity)||defaults.opacity))
+      };
+    }catch(_){return {...defaults};}
+  }
+  function saveWatermark(v){try{localStorage.setItem(KEY,JSON.stringify(v));return true;}catch(e){console.warn('Watermark setting not saved',e);return false;}}
+  const oldReceiptHTML=receiptHTML;
+  receiptHTML=function(r){
+    let html=oldReceiptHTML(r);
+    const cfg=getWatermark();
+    const logo=db?.settings?.logoData||'';
+    if(!cfg.enabled||!(/^(https:\/\/|blob:|data:image\/(png|jpeg|webp|gif);base64,)/i.test(logo)))return html;
+    // Inline image prints even when the browser's "background graphics" option is disabled.
+    const wm=`<div class="v38-receipt-watermark" aria-hidden="true"><img src="${esc(logo)}" alt="" style="width:${cfg.size}mm;max-width:92%;opacity:${cfg.opacity/100};"></div>`;
+    const css=`<style id="v38-watermark-style">
+      .v195-a5-receipt .v195-inner-frame{isolation:isolate;position:relative}
+      .v195-a5-receipt .v195-inner-frame>.v38-receipt-watermark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;overflow:hidden;z-index:0}
+      .v195-a5-receipt .v195-inner-frame>.v38-receipt-watermark img{height:auto;max-height:85%;object-fit:contain;display:block}
+      .v195-a5-receipt .v195-inner-frame>*:not(.v38-receipt-watermark){position:relative;z-index:1}
+      @media print{.v38-receipt-watermark,.v38-receipt-watermark img{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+    </style>`;
+    return html.replace('<div class="v195-inner-frame">','<div class="v195-inner-frame">'+css+wm);
+  };
+  window.receiptHTML=receiptHTML;
+  const oldSettings=renderSettings;
+  renderSettings=function(){
+    oldSettings();
+    if(!isAccountant())return;
+    const form=document.querySelector('#setForm');
+    if(!form||document.querySelector('#v38-watermark-panel'))return;
+    const cfg=getWatermark();
+    const panel=document.createElement('div');
+    panel.id='v38-watermark-panel';panel.className='full v38-watermark-panel';
+    panel.innerHTML=`<h4>A5 Fee Receipt — Background School Logo</h4>
+      <p class="card-note">Uses the School Logo uploaded above. Change that logo to change the watermark. This affects Fee Receipt print only.</p>
+      <label class="v38-toggle"><input id="v38Enabled" type="checkbox" ${cfg.enabled?'checked':''}> Show watermark on A5 Fee Receipt</label>
+      <div class="v38-controls"><label>Logo Size <strong id="v38SizeValue">${cfg.size} mm</strong><input id="v38Size" type="range" min="25" max="120" step="1" value="${cfg.size}"></label>
+      <label>Opacity <strong id="v38OpacityValue">${cfg.opacity}%</strong><input id="v38Opacity" type="range" min="1" max="35" step="1" value="${cfg.opacity}"></label></div>
+      <div class="v38-demo"><div class="v38-paper"><img id="v38DemoLogo" alt="School logo watermark" ${db.settings.logoData?`src="${db.settings.logoData}"`:''}><span>Sample fee receipt text above watermark<br>Rate × Months = Amount</span></div></div>
+      <div class="v38-actions"><button class="btn primary" type="button" id="v38Save">Save Watermark Settings</button><button class="btn" type="button" id="v38Reset">Reset Size / Opacity</button></div>
+      <p class="card-note">Size and opacity preferences are kept in this browser. The actual school logo continues to use the existing online School Logo setting.</p>`;
+    const actions=form.querySelector('.form-actions');
+    if(actions)actions.before(panel);else form.appendChild(panel);
+    const enabled=panel.querySelector('#v38Enabled'),size=panel.querySelector('#v38Size'),opacity=panel.querySelector('#v38Opacity'),img=panel.querySelector('#v38DemoLogo');
+    const update=()=>{
+      panel.querySelector('#v38SizeValue').textContent=size.value+' mm';
+      panel.querySelector('#v38OpacityValue').textContent=opacity.value+'%';
+      img.style.width=Math.min(94,Number(size.value)/1.28)+'%';img.style.opacity=Number(opacity.value)/100;
+      img.style.display=db.settings.logoData&&enabled.checked?'block':'none';
+    };
+    [enabled,size,opacity].forEach(el=>el.addEventListener('input',update));update();
+    panel.querySelector('#v38Save').onclick=()=>{
+      if(saveWatermark({enabled:enabled.checked,size:Number(size.value),opacity:Number(opacity.value)}))toast('A5 receipt watermark settings saved.');
+      else toast('Could not save watermark settings in this browser.');
+    };
+    panel.querySelector('#v38Reset').onclick=()=>{enabled.checked=true;size.value=defaults.size;opacity.value=defaults.opacity;update();};
+  };
+  window.renderSettings=renderSettings;
 })();

@@ -401,3 +401,16 @@ body{letter-spacing:.001em}
 .v37-fin-grid strong{display:block;font-size:20px;margin-top:7px;overflow-wrap:anywhere}
 .v37-fin-grid .v37-total{background:#eaf5fc;border:2px solid #3282b9}
 @media(max-width:680px){.v37-fin-grid{grid-template-columns:1fr 1fr}.v37-fin-grid strong{font-size:16px}}
+
+/* V38 A5 fee receipt watermark editor — Settings only */
+.v38-watermark-panel{border:1px solid #bfd4e5;border-radius:10px;background:#f7fbff;padding:14px;margin-top:10px}
+.v38-watermark-panel h4{margin:0 0 6px;color:#174f85;font-size:17px}
+.v38-watermark-panel .v38-toggle{display:flex;align-items:center;gap:8px;font-size:14px;margin:12px 0}
+.v38-watermark-panel .v38-toggle input{width:18px;height:18px}
+.v38-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
+.v38-controls label{display:block;font-weight:700}.v38-controls strong{float:right;color:#155fa0}
+.v38-controls input{display:block;width:100%;margin-top:11px}
+.v38-demo{display:flex;justify-content:center;margin:13px 0}.v38-paper{width:min(100%,280px);height:160px;border:2px solid #155fa0;position:relative;background:#fff;display:flex;align-items:center;justify-content:center;text-align:center;overflow:hidden}
+.v38-paper img{position:absolute;max-height:95%;object-fit:contain}.v38-paper span{z-index:1;font-size:12px;font-weight:700;line-height:1.8}
+.v38-actions{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:650px){.v38-controls{grid-template-columns:1fr}}
