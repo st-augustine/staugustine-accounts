@@ -414,3 +414,32 @@ body{letter-spacing:.001em}
 .v38-paper img{position:absolute;max-height:95%;object-fit:contain}.v38-paper span{z-index:1;font-size:12px;font-weight:700;line-height:1.8}
 .v38-actions{display:flex;gap:8px;flex-wrap:wrap}
 @media(max-width:650px){.v38-controls{grid-template-columns:1fr}}
+
+/* V39 read-only daily financial overview */
+.v39-dashboard{background:#f6f9fc;padding:18px;border:1px solid #cbd8e2;border-radius:12px}
+.v39-dash-header{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.v39-dash-header h3{font-size:22px;margin:0;color:#194f7b}.v39-dash-header p{margin:5px 0 0;color:#5f7281}
+.v39-section-title{font-weight:900;font-size:16px;color:#1d5075;margin:20px 0 10px;border-bottom:1px solid #d5e0e8;padding-bottom:7px}
+.v39-section-title small{font-size:12px;font-weight:500;color:#637b8a;margin-left:7px}
+.v39-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px}
+.v39-metric{border:1px solid #d1e0eb;border-radius:9px;background:white;padding:16px;min-width:0}
+.v39-metric small{display:block;color:#566b7a;font-size:12px;font-weight:700}
+.v39-metric strong{display:block;margin:7px 0 4px;font-size:21px;overflow-wrap:anywhere;color:#1a3f62}
+.v39-metric span{font-size:11px;color:#687982}
+.v39-hint{padding:13px;background:#fff9e9;border:1px solid #edcf8c;margin:12px 0;color:#6a4b0a}
+#v39ReportHost{margin-top:18px;overflow-x:auto}.v39-report-paper{max-width:930px;margin:12px auto;background:#fff;padding:22px;border:1px solid #c5c5c5;font:13px Arial,sans-serif}
+.v39-report-head{text-align:center;border-bottom:2px solid #333;padding-bottom:12px}.v39-report-head h2{margin:3px 0;color:#174f85;font-size:19px}.v39-report-head h3{margin:8px 0}.v39-report-head p{margin:3px 0}
+.v39-report-paper h4{margin:20px 0 8px;background:#eef3f8;padding:8px;font-size:13px}
+.v39-summary-table,.v39-detail-table{width:100%;border-collapse:collapse}
+.v39-summary-table th,.v39-summary-table td,.v39-detail-table th,.v39-detail-table td{border:1px solid #b5c4cf;padding:7px 9px;text-align:left;vertical-align:top}
+.v39-summary-table td,.v39-detail-table .money{text-align:right;white-space:nowrap}
+.v39-detail-table td small{display:block;color:#677}.v39-signs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:end;margin:35px 0 8px;gap:12px}.v39-signs span:nth-child(2){text-align:center}.v39-signs span:nth-child(3){text-align:right}.v39-warning{border:1px solid #e3c46a;padding:8px;margin-top:12px}
+@media(max-width:650px){.v39-dashboard{padding:10px}.v39-report-paper{padding:12px}.v39-metric strong{font-size:18px}}
+
+/* V40: Editable names below report authorization labels, without changing financial data. */
+.v40-report-name-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px;padding:14px;border:1px solid #d0dbe5;border-radius:9px;background:#f6faff}
+.v40-report-name-fields .field label{display:block;font-weight:700;font-size:12px;margin-bottom:5px}
+.v40-report-name-fields .field input{width:100%;padding:9px;border:1px solid #b9c9d8;border-radius:7px;background:white}
+.v39-report-paper .v39-signs span b{display:block;font-size:12px}
+.v39-report-paper .v39-signs span small{display:block;margin-top:7px;min-height:16px;font-size:13px;font-weight:700;overflow-wrap:anywhere}
+@media(max-width:700px){.v40-report-name-fields{grid-template-columns:1fr}}

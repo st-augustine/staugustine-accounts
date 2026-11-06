@@ -5652,3 +5652,135 @@ drawStudentReport=function(...args){
   };
   window.renderSettings=renderSettings;
 })();
+
+
+/* V39 — READ-ONLY Daily Financial Report and separated Today/Until Today dashboard.
+   This block does not write to Supabase/local accounting records. Report Portal RPC
+   permissions remain enforced for MD/CEO. Transfers are not revenue or expenses. */
+(function(){
+  const baseRender=renderPage;
+  const fiscalMoney=n=>money(Math.round(num(n)*100)/100);
+  const valueSum=(xs,key)=>Math.round((xs||[]).reduce((a,x)=>a+Math.round(num(typeof key==='function'?key(x):x[key])*100),0))/100;
+  const todayDate=()=>workingDate();
+  const visibleBanks=()=>((typeof v195VisibleBanks==='function')?v195VisibleBanks():(db.banks||[]).filter(b=>!String(b.remarks||'').startsWith('__DELETED__')));
+  const card=(label,value,sub='')=>`<div class="v39-metric"><small>${esc(label)}</small><strong>${value===null?'Not available':fiscalMoney(value)}</strong>${sub?`<span>${esc(sub)}</span>`:''}</div>`;
+  const block=(label,value)=>`<div class="v39-metric"><small>${esc(label)}</small><strong>${fiscalMoney(value)}</strong></div>`;
+  const row=(a,b)=>`<tr><th>${esc(a)}</th><td class="money">${fiscalMoney(b)}</td></tr>`;
+  const safeDate=s=>/^\d{4}-\d{2}-\d{2}$/.test(String(s||''));
+  const showMissing=msg=>`<div class="v39-hint">${esc(msg)}</div>`;
+  const printableRows=(items)=>items.length?`<table class="v39-detail-table"><thead><tr><th>Type / Ref</th><th>Particulars / Name</th><th>Account</th><th class="money">Income</th><th class="money">Expense</th><th class="money">Transfer</th></tr></thead><tbody>${items.map(r=>`<tr><td>${esc(r.type)}${r.ref?`<small>${esc(r.ref)}</small>`:''}</td><td>${esc(r.details||r.head||'—')}</td><td>${esc(r.account||r.mode||'—')}</td><td class="money">${r.income?fiscalMoney(r.income):'—'}</td><td class="money">${r.expense?fiscalMoney(r.expense):'—'}</td><td class="money">${r.transfer?fiscalMoney(r.transfer):'—'}</td></tr>`).join('')}</tbody></table>`:showMissing('No transactions for this date.');
+  function localSnapshot(date){
+    const till=x=>String(x.date||'')<=date,day=x=>String(x.date||'')===date;
+    const fees=(db.receipts||[]).filter(till), quick=(db.quickReceipts||[]).filter(till), expenses=(db.expenses||[]).filter(till);
+    const feeAmount=r=>typeof f10ReceiptTotal==='function'?f10ReceiptTotal(r):num(r.paid);
+    const todayFees=fees.filter(day),todayQuick=quick.filter(day),todayExpenses=expenses.filter(day);
+    const transfers=(db.bankTransactions||[]).filter(day);
+    const banks=visibleBanks().map(b=>({name:b.name,accountNo:b.accountNo||'',balance:bankBalanceThrough(b.id,date)}));
+    const items=[
+      ...todayFees.map(r=>({type:'Fee Receipt',ref:r.receiptNo,details:[r.studentName,r.className].filter(Boolean).join(' / '),account:r.mode==='Bank'?bankLabel(r.bankId):'Cash',income:feeAmount(r),expense:0,transfer:0})),
+      ...todayQuick.map(r=>({type:'Quick Receipt',ref:r.receiptNo,details:[r.title,r.receivedFrom].filter(Boolean).join(' / '),account:r.mode==='Bank'?bankLabel(r.bankId):'Cash',income:num(r.amount),expense:0,transfer:0})),
+      ...todayExpenses.map(r=>({type:'Expense',ref:r.voucherNo,details:[r.head,r.paidTo,r.remarks].filter(Boolean).join(' / '),account:r.mode==='Bank'?bankLabel(r.bankId):'Cash',income:0,expense:num(r.amount),transfer:0})),
+      ...transfers.map(t=>({type:t.type==='cash_deposit'?'Cash → Bank':t.type==='withdrawal'?'Bank → Cash':'Bank Transfer',ref:t.ref,details:[t.person,t.purpose,t.remarks].filter(Boolean).join(' / '),account:bankLabel(t.bankId),income:0,expense:0,transfer:num(t.amount)}))
+    ];
+    return {date,fees:valueSum(todayFees,feeAmount),quick:valueSum(todayQuick,'amount'),expenses:valueSum(todayExpenses,'amount'),allFees:valueSum(fees,feeAmount),allQuick:valueSum(quick,'amount'),allExpenses:valueSum(expenses,'amount'),outstanding:totalDues(),cash:cashBalanceThrough(date),banks,items,
+      cashToBank:valueSum(transfers.filter(t=>t.type==='cash_deposit'),'amount'),bankToCash:valueSum(transfers.filter(t=>t.type==='withdrawal'),'amount'),bankToBank:valueSum(transfers.filter(t=>!['cash_deposit','withdrawal'].includes(t.type)),'amount'),
+      source:'Accountant loaded records',warnings:[]};
+  }
+  function rpcArray(d){return Array.isArray(d)?d:[];}
+  function mapPortalRow(r){
+    const type=String(r.entry_type||r.type||'Transaction'),mode=String(r.mode||''),ref=r.reference_no||r.receipt_no||'';
+    return {type,ref,details:[r.head,r.details].filter(Boolean).join(' / '),account:mode,income:num(r.income),expense:num(r.expense),transfer:0};
+  }
+  // Only server-authorized portal calls. Never read raw operations as MD/CEO.
+  async function portalSnapshot(date){
+    const base=await v18ReportCall('dashboard','','',getYear());
+    const result={date,fees:null,quick:null,expenses:null,allFees:num(base.fee_received),allQuick:num(base.quick_income),allExpenses:num(base.expenses),outstanding:num(base.dues),cash:null,banks:[],items:[],cashToBank:null,bankToCash:null,bankToBank:null,source:'Read-only report portal',warnings:[]};
+    if(hasPermission('daybook')){
+      try{const rows=rpcArray(await v18ReportCall('daybook',date,date,''));result.items=rows.map(mapPortalRow);result.expenses=valueSum(rows,'expense');result.quick=valueSum(rows.filter(r=>/quick|other/i.test(String(r.entry_type||''))),'income');result.fees=valueSum(rows.filter(r=>/fee/i.test(String(r.entry_type||''))),'income');
+        if(result.fees+result.quick<valueSum(rows,'income')-0.01){result.warnings.push('Unclassified income is present; see daily detail for full collection.');result.quick=null;result.fees=null;}
+      }catch(e){result.warnings.push('Daily Day Book unavailable: '+e.message);}
+    }else result.warnings.push('Enable Day Book report permission for daily transaction details.');
+    if(hasPermission('banking')){
+      try{const banking=await v18ReportCall('banking_report',date,date,'');result.cash=num(banking.cash_balance);result.banks=(banking.banks||[]).map(b=>({name:b.bank_name,accountNo:b.account_no||'',balance:num(b.balance)}));
+        const moves=rpcArray(banking.movements);const transfers=moves.filter(m=>/transfer|deposit|withdraw/i.test(String(m.entry_type||'')));
+        const cashTo=transfers.filter(m=>/cash.*bank|deposit/i.test(String(m.entry_type||''))),cashFrom=transfers.filter(m=>/withdraw|bank.*cash/i.test(String(m.entry_type||'')));
+        result.cashToBank=valueSum(cashTo,m=>m.bank_in||m.amount);result.bankToCash=valueSum(cashFrom,m=>m.bank_out||m.amount);
+        const other=transfers.filter(m=>!cashTo.includes(m)&&!cashFrom.includes(m));
+        result.bankToBank=other.length?valueSum(other,m=>m.bank_in||m.bank_out||m.amount):0;
+        // Avoid double counting paired bank-to-bank movement lines as income.
+        if(other.length)result.warnings.push('Bank-to-bank movement may contain both sides of a transfer; verify against Banking Report.');
+      }catch(e){result.warnings.push('Bank-wise balances unavailable: '+e.message);}
+    }else result.warnings.push('Enable Banking Report permission to view bank-wise balances and fund transfers.');
+    return result;
+  }
+  async function snapshot(date){return isAccountant()?localSnapshot(date):portalSnapshot(date);}
+  function metricSections(s){
+    const bankTotal=s.banks.length?valueSum(s.banks,'balance'):null;
+    const known=x=>x===null?'Not available':fiscalMoney(x);
+    const todayCards=[['Fee Collection',s.fees],['Quick / Other Income',s.quick],['Expenses',s.expenses],['Total Collection',s.fees===null||s.quick===null?null:s.fees+s.quick]];
+    return `<div class="v39-section-title">TODAY'S FINANCIAL SUMMARY <small>${esc(s.date)} BS</small></div><div class="v39-metrics">${todayCards.map(([a,b])=>`<div class="v39-metric"><small>${esc(a)}</small><strong>${known(b)}</strong></div>`).join('')}</div>
+      <div class="v39-section-title">FINANCIAL POSITION — UNTIL THIS DAY <small>As of ${esc(s.date)} BS</small></div>
+      <div class="v39-metrics">${card('Fee Collection (Today Only)',s.fees)}${card('Other Income (Today Only)',s.quick)}${card('Expenses (Today Only)',s.expenses)}${card('Outstanding (Current)',s.outstanding)}${card('Cash Balance (Closing)',s.cash)}${card('Total Bank Balance (Closing)',bankTotal)}</div>
+      <div class="v39-section-title">BANK-WISE CLOSING BALANCES</div><div class="v39-metrics">${s.banks.map(b=>card(b.name,b.balance,b.accountNo)).join('')||showMissing('Bank-wise balances require Banking Report permission and an available online report.')}${s.cash!==null&&bankTotal!==null?card('Total Cash + Banks',s.cash+bankTotal):''}</div>`;
+  }
+  // Names belong to the current report presentation only; never write accounting records.
+  const reportNames={accountant:'',md:'',ceo:''};
+  function updateReportNames(){
+    [['accountant','v40AccountantName'],['md','v40MDName'],['ceo','v40CEOName']].forEach(([key,id])=>{
+      const input=document.querySelector('#v40Input_'+key);
+      if(input)reportNames[key]=input.value.trim();
+      const printName=document.getElementById(id);
+      if(printName)printName.textContent=reportNames[key];
+    });
+  }
+  function reportHTML(s){
+    const total=s.fees===null||s.quick===null?null:s.fees+s.quick;
+    const sumRows=(pairs)=>`<table class="v39-summary-table">${pairs.map(([a,b])=>`<tr><th>${esc(a)}</th><td>${b===null?'Not available':fiscalMoney(b)}</td></tr>`).join('')}</table>`;
+    return `<div class="v39-report-paper"><div class="v39-report-head"><h2>${esc(db.settings.schoolName||'ST. AUGUSTINE ACADEMIC FOUNDATION')}</h2><p>${esc(db.settings.address||'')}</p><h3>DAILY FINANCIAL REPORT</h3><p>Nepali Date: <b>${esc(s.date)}</b> · Academic Year: <b>${esc(getYear())}</b> · ${esc(s.source)}</p></div>
+    <h4>A. TODAY'S INCOME / EXPENSE</h4>${sumRows([['Fee Collection',s.fees],['Quick / Other Income',s.quick],['Total Collection',total],['Total Expense',s.expenses],['Net Today',total===null||s.expenses===null?null:total-s.expenses]])}
+    <h4>B. TRANSACTION DETAILS</h4>${printableRows(s.items)}
+    <h4>C. TODAY'S FUND TRANSFERS (not income / expense)</h4>${sumRows([['Cash to Bank',s.cashToBank],['Bank to Cash',s.bankToCash],['Bank to Bank',s.bankToBank]])}
+    <h4>D. CASH &amp; BANK POSITION — UNTIL ${esc(s.date)}</h4>${sumRows([['Cash Balance',s.cash],...s.banks.map(b=>[b.name+(b.accountNo?' ('+b.accountNo+')':''),b.balance]),['TOTAL AVAILABLE FUNDS',s.cash===null||(s.source==='Read-only report portal'&&!s.banks.length)?null:s.cash+valueSum(s.banks,'balance')]])}
+    ${s.warnings.length?`<div class="v39-warning">${s.warnings.map(esc).join(' · ')}</div>`:''}
+    <div class="v39-signs"><span><b>Prepared by: Accountant</b><small id="v40AccountantName">${esc(reportNames.accountant)}</small></span><span><b>Reviewed by: MD</b><small id="v40MDName">${esc(reportNames.md)}</small></span><span><b>Approved by: CEO</b><small id="v40CEOName">${esc(reportNames.ceo)}</small></span></div></div>`;
+  }
+  function printReport(){
+    const content=document.querySelector('#v39ReportPaper');if(!content)return;
+    const w=window.open('','_blank','width=1050,height=850');if(!w){toast('Allow pop-ups for Print / PDF.');return;}
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Daily Financial Report</title><style>${reportPrintCSS}</style></head><body>${content.innerHTML}</body></html>`);
+    w.document.close();
+    let didPrint=false;const printOnce=()=>{if(didPrint||w.closed)return;didPrint=true;w.print();};
+    w.onload=printOnce;setTimeout(printOnce,350);
+  }
+  const reportPrintCSS=`@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font:11px Arial,sans-serif;color:#111;margin:0}.v39-report-paper{max-width:190mm;margin:auto}.v39-report-head{text-align:center;border-bottom:2px solid #222;margin-bottom:8px;padding-bottom:6px}.v39-report-head h2{font-size:17px;margin:2px 0}.v39-report-head h3{font-size:15px;margin:7px 0}.v39-report-head p{margin:3px 0}.v39-report-paper h4{background:#eee;padding:6px 7px;margin:13px 0 5px;font-size:11px;break-after:avoid}.v39-summary-table,.v39-detail-table{width:100%;border-collapse:collapse}.v39-summary-table th,.v39-summary-table td,.v39-detail-table th,.v39-detail-table td{border:1px solid #888;padding:5px;text-align:left;vertical-align:top}.v39-summary-table td{text-align:right;width:36%;font-weight:700}.v39-detail-table .money{text-align:right;white-space:nowrap}.v39-detail-table td small{display:block}.v39-detail-table tr{break-inside:avoid}.v39-signs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:30px;break-inside:avoid}.v39-signs span:nth-child(2){text-align:center}.v39-signs span:nth-child(3){text-align:right}.v39-signs span b{display:block;font-size:11px}.v39-signs span small{display:block;font-size:12px;font-weight:700;margin-top:6px;min-height:16px;overflow-wrap:anywhere}.v39-warning{padding:8px;border:1px solid #888;margin-top:12px}.v39-hint{padding:9px;color:#666} `;
+  async function drawDaily(date){
+    const host=document.querySelector('#v39ReportHost');if(!host)return;
+    host.innerHTML='<div class="v39-hint">Loading authorized daily financial report…</div>';
+    try{const s=await snapshot(date);if(session.page!=='dailyFinancialReport'||!host.isConnected)return;
+      host.innerHTML=`<div id="v39ReportPaper">${reportHTML(s)}</div>`;
+    }catch(e){if(host.isConnected)host.innerHTML=showMissing('Report could not load: '+e.message);}
+  }
+  function renderDailyFinancialReport(){
+    if(!isAccountant()&&!hasPermission('dashboard'))return unauthorized();
+    const d=todayDate();document.querySelector('#pageTitle').textContent='Daily Financial Report';
+    document.querySelector('#content').innerHTML=`<div class="section"><div class="section-title"><div><h3>Daily Financial Report</h3><p>View today's receipts, expenses, fund transfers and cash/bank position; print or save as PDF.</p></div></div><div class="toolbar"><div class="field"><label>Nepali Date (BS)</label><input id="v39Date" value="${esc(d)}" placeholder="2083-07-20" maxlength="10"></div><button class="btn cyan" id="v39Load">View Report</button><button class="btn green" id="v39Print">Print / Save PDF</button></div><div class="v40-report-name-fields"><div class="field"><label>Prepared by — Accountant Name</label><input id="v40Input_accountant" placeholder="Enter Accountant name" value="${esc(reportNames.accountant)}" maxlength="100"></div><div class="field"><label>Reviewed by — MD Name</label><input id="v40Input_md" placeholder="Enter MD name" value="${esc(reportNames.md)}" maxlength="100"></div><div class="field"><label>Approved by — CEO Name</label><input id="v40Input_ceo" placeholder="Enter CEO name" value="${esc(reportNames.ceo)}" maxlength="100"></div></div><div id="v39ReportHost"></div></div>`;
+    document.querySelector('#v39Load').onclick=()=>{const date=document.querySelector('#v39Date').value.trim();if(!safeDate(date)){toast('Use Nepali date YYYY-MM-DD');return;}drawDaily(date);};
+    ['accountant','md','ceo'].forEach(role=>{document.querySelector('#v40Input_'+role).addEventListener('input',updateReportNames);});
+    document.querySelector('#v39Print').onclick=()=>{updateReportNames();printReport();};drawDaily(d);
+  }
+  renderPage=function(){if(session.page==='dailyFinancialReport')return renderDailyFinancialReport();return baseRender();};
+  window.renderPage=renderPage;
+  const oldDashboard=renderDashboard;
+  renderDashboard=function(){
+    if(!isAccountant()&&!hasPermission('dashboard'))return oldDashboard();
+    document.querySelector('#content').innerHTML='<div class="section"><div class="empty">Loading financial dashboard…</div></div>';
+    const pageDate=todayDate(),pageRole=session.role;
+    snapshot(pageDate).then(s=>{
+      if(session.page!=='dashboard'||session.role!==pageRole)return;
+      const reportButton=`<button class="btn primary" id="v39OpenReport" type="button">Daily Financial Report — Print / PDF</button>`;
+      document.querySelector('#content').innerHTML=`<div class="v39-dashboard"><div class="v39-dash-header"><div><h3>Accounts Financial Overview</h3><p>${esc(roleName())} ${isAccountant()?'':' · READ ONLY'} · Academic Year ${esc(getYear())} · ${esc(pageDate)} BS</p></div>${reportButton}</div>${metricSections(s)}${s.warnings.length?`<div class="v39-hint">${s.warnings.map(esc).join(' · ')}</div>`:''}</div>`;
+      document.querySelector('#v39OpenReport').onclick=()=>navigate('dailyFinancialReport');
+    }).catch(err=>{if(session.page==='dashboard')document.querySelector('#content').innerHTML=showMissing('Financial Dashboard unavailable: '+err.message);});
+  };
+  window.renderDashboard=renderDashboard;
+})();
