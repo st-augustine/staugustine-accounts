@@ -3026,6 +3026,9 @@ savePayment=async function(){
       p_cash_received:cash,p_bank_received:bank,p_bank_id:bank>0?paymentState.bankId:null,p_issued_by:db.settings.issuedBy||null,p_remarks:null
     });
     if(error)throw error;
+    // Trigger receipt SMS immediately after the atomic RPC confirms a saved receipt.
+    // Do not wait for UI reload; no extra accounting mutation is performed here.
+    if(data?.receipt_id) setTimeout(()=>window.saSmsReceiptSaved?.(String(data.receipt_id)),0);
     await Promise.all([v15LoadOnlineStudents(),v17LoadOnlineOverrides(),v17LoadOnlineReceipts(),v17LoadOnlineBanks()]);
     const receiptId=data?.receipt_id||'',receipt=(db.receipts||[]).find(r=>r.id===receiptId)||(db.receipts||[]).find(r=>r.receiptNo===data?.receipt_no);
     feeReceiveV9Context={year:y,className:fresh.className};
@@ -4285,7 +4288,7 @@ window.v17RenderSavedReceiptToWindow=v17RenderSavedReceiptToWindow;
     _v196BaseShowReceiptById(id,autoPrint);
     if(!isAccountant())return;
     const actions=document.querySelector('#modalContent .form-actions');
-    if(actions&&!actions.querySelector('.v196-whatsapp-btn')){
+    if(false && actions&&!actions.querySelector('.v196-whatsapp-btn')){ // Legacy WhatsApp button retired; SMS auto-sends on receipt save.
       const b=document.createElement('button');
       b.type='button';b.className='btn v196-whatsapp-btn';b.textContent='Send to WhatsApp';
       b.onclick=()=>v196SendReceiptWhatsApp(id);
@@ -5784,3 +5787,6 @@ drawStudentReport=function(...args){
   };
   window.renderDashboard=renderDashboard;
 })();
+
+/* V42: Disable retired receipt WhatsApp action. Other receipt, print and accounting functions unchanged. */
+window.v196SendReceiptWhatsApp=function(){toast('WhatsApp receipt sharing has been replaced by automatic SMS.');};

@@ -20,7 +20,7 @@ function buttonInit(){
  if(!document.querySelector('#sideNav'))return;
  const n=document.querySelector('#sideNav');
  if(!isAccountant())return;
- for(const [page,label] of [['smsReminder','SMS Reminder Send'],['smsReceived','Fee Received SMS'],['smsHistory','SMS History']]){
+ for(const [page,label] of [['smsReminder','SMS Reminder Send'],['smsHistory','SMS History']]){
   if(n.querySelector(`[data-page="${page}"]`))continue;
   const b=document.createElement('button');b.className='nav-btn';b.dataset.page=page;b.innerHTML=`<span class="nav-icon">✉</span>${label}`;b.onclick=()=>navigate(page);n.append(b);
  }
@@ -28,17 +28,17 @@ function buttonInit(){
 const originalNav=renderSideNav;
 renderSideNav=function(){originalNav();buttonInit();};window.renderSideNav=renderSideNav;
 const originalNavigate=navigate;
-navigate=function(page){if(['smsReminder','smsReceived','smsHistory'].includes(page)){
+navigate=function(page){if(['smsReminder','smsHistory'].includes(page)){
  if(!isAccountant()){toast('Only Accountant may access SMS accounts tools.');return;}
  session.page=page;renderPage();return;
  }return originalNavigate(page);};window.navigate=navigate;
 const originalRender=renderPage;
 renderPage=function(){
- if(['smsReminder','smsReceived','smsHistory'].includes(session.page)){
+ if(['smsReminder','smsHistory'].includes(session.page)){
   if(!isAccountant())return unauthorized();
   const title={smsReminder:'Reminder Bill Send',smsReceived:'Fee Received SMS',smsHistory:'SMS History'}[session.page];
   document.querySelector('#pageTitle').textContent=title;document.querySelector('#breadcrumb').textContent='Accounts > '+title;
-  if(session.page==='smsReminder')renderSmsReminder();else if(session.page==='smsReceived')renderSmsReceived();else renderSmsHistory();
+  if(session.page==='smsReminder')renderSmsReminder();else renderSmsHistory();
   renderSideNav();return;
  }
  return originalRender();
@@ -111,4 +111,48 @@ async function renderSmsHistory(){
   document.querySelector('#smsHistoryHost').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Student</th><th>Mobile</th><th>Status</th><th>Message</th></tr></thead><tbody>${(data.rows||[]).map(r=>`<tr><td>${E(r.created_at)}</td><td>${E(r.message_type)}</td><td>${E(r.student_name)}</td><td>${E(r.mobile_masked)}</td><td>${E(r.status)}</td><td>${E(r.message)}</td></tr>`).join('')}</tbody></table></div>`;
  }catch(e){document.querySelector('#smsHistoryHost').textContent='History unavailable: '+e.message;}
 }
+
+/* V42: Send a receipt SMS immediately after a successful, saved online receipt.
+   Do not send when opening/printing/reprinting an old receipt. No accounting writes.
+   Server re-reads receipt totals/date and enforces SMS ENABLED + idempotency.
+   A missing/invalid parent mobile is requested once, then securely saved server-side.
+*/
+const saPendingReceipts=new Set();
+function saNormalizePhone(v){return String(v||'').replace(/[\s-]/g,'').replace(/^(?:\+977|977)/,'');}
+function saValidPhone(v){return /^9[678]\d{8}$/.test(saNormalizePhone(v));}
+async function saInvokeReceived(receiptId,newMobile){
+ const body={action:'received',receiptId};
+ if(newMobile)body.newMobile=saNormalizePhone(newMobile);
+ const {data,error}=await sb.functions.invoke('accounts-sms',{body});
+ if(error){
+  let detail='';
+  try{detail=String((await error.context?.json())?.error||'');}catch(_e){}
+  return {ok:false,reason:detail||String(error.message||'SMS request failed')};
+ }
+ return data?.ok?{ok:true}:{ok:false,reason:String(data?.error||'SMS request rejected')};
+}
+window.saSmsReceiptSaved=async function(receiptId){
+ const id=String(receiptId||'');
+ if(!id||!isAccountant()||saPendingReceipts.has(id))return;
+ saPendingReceipts.add(id);
+ try{
+  let answer=await saInvokeReceived(id);
+  if(!answer.ok&&/Parent mobile is invalid\/missing/i.test(answer.reason)){
+   const entered=window.prompt('Receipt saved successfully. Parent mobile is missing or invalid. Enter Nepal mobile number to save and send receipt SMS:','');
+   if(entered===null){toast('Receipt saved. SMS not sent: mobile entry cancelled.');return;}
+   if(!saValidPhone(entered)){toast('Receipt saved. SMS not sent: enter a valid Nepal mobile number.');return;}
+   answer=await saInvokeReceived(id,entered);
+   if(answer.ok){
+    // Refresh in-memory directory, not receipts or balances, after server saved the mobile.
+    try{await v15LoadOnlineStudents();}catch(_e){}
+   }
+  }
+  if(answer.ok) toast('Fee receipt SMS accepted by provider.');
+  else if(/SMS sending is disabled by Admin/i.test(answer.reason))toast('Receipt saved. SMS disabled by Admin.');
+  else if(/Already attempted/i.test(answer.reason))toast('Receipt saved. SMS already attempted — check SMS History.');
+  else {console.warn('Fee receipt SMS not accepted:',answer.reason);toast('Receipt saved. SMS not sent: '+answer.reason);}
+ }catch(e){console.warn('Fee receipt SMS connection problem:',e);toast('Receipt saved. SMS status uncertain — check SMS History.');}
+ finally{saPendingReceipts.delete(id);}
+};
+
 })();
