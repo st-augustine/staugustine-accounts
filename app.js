@@ -3028,12 +3028,20 @@ savePayment=async function(){
     if(error)throw error;
     // Trigger receipt SMS immediately after the atomic RPC confirms a saved receipt.
     // Do not wait for UI reload; no extra accounting mutation is performed here.
-    if(data?.receipt_id) setTimeout(()=>window.saSmsReceiptSaved?.(String(data.receipt_id)),0);
+    const smsReceiptId=String(data?.receipt_id||'');
     await Promise.all([v15LoadOnlineStudents(),v17LoadOnlineOverrides(),v17LoadOnlineReceipts(),v17LoadOnlineBanks()]);
     const receiptId=data?.receipt_id||'',receipt=(db.receipts||[]).find(r=>r.id===receiptId)||(db.receipts||[]).find(r=>r.receiptNo===data?.receipt_no);
     feeReceiveV9Context={year:y,className:fresh.className};
     if(receipt){showReceiptById(receipt.id,false);v17RenderSavedReceiptToWindow(printWin,receipt);}else if(printWin)printWin.close();
     toast(`Online receipt ${data?.receipt_no||''} saved — Cash ${money(cash)} + Bank ${money(bank)}.`);renderFeePayment();
+    // After receipt confirmation & UI render, handle mobile prompt / SMS status.
+    // Never repeat the accounting RPC if SMS fails or mobile is missing.
+    if(smsReceiptId && typeof window.saSmsReceiptSaved==='function'){
+      await window.saSmsReceiptSaved(smsReceiptId);
+    }else{
+      console.warn('Fee SMS hook unavailable, receipt id:',smsReceiptId);
+      toast('Receipt saved. SMS could not start; check SMS module and Receipt Register.');
+    }
   }catch(error){
     console.error('Online split fee receipt save failed:',error);if(printWin)printWin.close();toast('Fee receipt was NOT saved: '+String(error?.message||'Unknown error'));
     try{await Promise.all([v15LoadOnlineStudents(),v17LoadOnlineOverrides(),v17LoadOnlineReceipts(),v17LoadOnlineBanks()]);drawPayPanel();}catch(_){/* ignore secondary refresh */}
