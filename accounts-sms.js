@@ -136,21 +136,42 @@ window.saSmsReceiptSaved=async function(receiptId){
  if(!id||!isAccountant()||saPendingReceipts.has(id))return;
  saPendingReceipts.add(id);
  try{
-  let answer=await saInvokeReceived(id);
-  if(!answer.ok&&/Parent mobile is invalid\/missing/i.test(answer.reason)){
-   const entered=window.prompt('Receipt saved successfully. Parent mobile is missing or invalid. Enter Nepal mobile number to save and send receipt SMS:','');
-   if(entered===null){toast('Receipt saved. SMS not sent: mobile entry cancelled.');return;}
-   if(!saValidPhone(entered)){toast('Receipt saved. SMS not sent: enter a valid Nepal mobile number.');return;}
-   answer=await saInvokeReceived(id,entered);
-   if(answer.ok){
-    // Refresh in-memory directory, not receipts or balances, after server saved the mobile.
-    try{await v15LoadOnlineStudents();}catch(_e){}
-   }
+  // Verify the saved receipt and current student phone locally first.
+  // The backend re-checks all of these fields and is the only writer of mobile_number.
+  const receipt=(db.receipts||[]).find(r=>String(r.id)===id);
+  if(!receipt){toast('Receipt saved. SMS needs review: saved receipt not loaded.');return;}
+  const student=(db.students||[]).find(s=>
+    String(s.id)===String(receipt.studentId||'') && String(s.year)===String(receipt.year)
+  ) || (db.students||[]).find(s=>
+    String(s.studentUuid||s.masterId||'')===String(receipt.studentUuid||receipt.masterId||'') &&
+    String(s.year)===String(receipt.year)
+  );
+  if(!student){toast('Receipt saved. SMS needs review: student record unavailable.');return;}
+  const savedPhone=saNormalizePhone(student.mobileNumber||student.phone||'');
+  let newMobile='';
+  if(!saValidPhone(savedPhone)){
+   const entered=window.prompt('Receipt saved successfully. Parent mobile is missing or invalid. Enter parent mobile number to save in Student Details (SMS sends only when enabled):','');
+   if(entered===null){toast('Receipt saved. Mobile entry cancelled; no SMS sent.');return;}
+   if(!saValidPhone(entered)){toast('Receipt saved. Enter a valid Nepal mobile number; no SMS sent.');return;}
+   newMobile=saNormalizePhone(entered);
   }
-  if(answer.ok) toast('Fee receipt SMS accepted by provider.');
-  else if(/SMS sending is disabled by Admin/i.test(answer.reason))toast('Receipt saved. SMS disabled by Admin.');
+  let answer=await saInvokeReceived(id,newMobile);
+  // If the online student record changed since refresh, handle a missing-phone response once.
+  if(!answer.ok && !newMobile && /Parent mobile is invalid\/missing/i.test(answer.reason)){
+   const entered=window.prompt('Receipt saved. Parent mobile is missing in the online record. Enter a valid Nepal mobile number:','');
+   if(entered===null){toast('Receipt saved. Mobile entry cancelled; no SMS sent.');return;}
+   if(!saValidPhone(entered)){toast('Receipt saved. Invalid mobile; no SMS sent.');return;}
+   newMobile=saNormalizePhone(entered);
+   answer=await saInvokeReceived(id,newMobile);
+  }
+  if(newMobile && (answer.ok||/SMS sending is disabled by Admin/i.test(answer.reason))){
+   // Refresh only student contact data; no receipt or financial record is modified.
+   try{await v15LoadOnlineStudents();}catch(e){console.warn('SMS: student mobile refresh failed',e);}
+  }
+  if(answer.ok)toast('Fee receipt SMS accepted by provider.');
+  else if(/SMS sending is disabled by Admin/i.test(answer.reason))toast(newMobile?'Parent mobile saved. SMS disabled by Admin.':'Receipt saved. SMS disabled by Admin.');
   else if(/Already attempted/i.test(answer.reason))toast('Receipt saved. SMS already attempted — check SMS History.');
-  else {console.warn('Fee receipt SMS not accepted:',answer.reason);toast('Receipt saved. SMS not sent: '+answer.reason);}
+  else{console.warn('Fee receipt SMS not accepted:',answer.reason);toast('Receipt saved. SMS not sent: '+answer.reason);}
  }catch(e){console.warn('Fee receipt SMS connection problem:',e);toast('Receipt saved. SMS status uncertain — check SMS History.');}
  finally{saPendingReceipts.delete(id);}
 };

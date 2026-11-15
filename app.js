@@ -3036,8 +3036,8 @@ savePayment=async function(){
     toast(`Online receipt ${data?.receipt_no||''} saved — Cash ${money(cash)} + Bank ${money(bank)}.`);renderFeePayment();
     // After receipt confirmation & UI render, handle mobile prompt / SMS status.
     // Never repeat the accounting RPC if SMS fails or mobile is missing.
-    if(smsReceiptId && typeof window.saSmsReceiptSaved==='function'){
-      await window.saSmsReceiptSaved(smsReceiptId);
+    if((smsReceiptId || receipt?.id) && typeof window.saSmsReceiptSaved==='function'){
+      await window.saSmsReceiptSaved(smsReceiptId || receipt.id);
     }else{
       console.warn('Fee SMS hook unavailable, receipt id:',smsReceiptId);
       toast('Receipt saved. SMS could not start; check SMS module and Receipt Register.');
