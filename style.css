@@ -443,3 +443,5 @@ body{letter-spacing:.001em}
 .v39-report-paper .v39-signs span b{display:block;font-size:12px}
 .v39-report-paper .v39-signs span small{display:block;margin-top:7px;min-height:16px;font-size:13px;font-weight:700;overflow-wrap:anywhere}
 @media(max-width:700px){.v40-report-name-fields{grid-template-columns:1fr}}
+/* Additive SMS screen: existing accounts CSS unchanged above. */
+.sms-action-bar{display:flex;align-items:center;gap:15px;flex-wrap:wrap;margin:12px 0}.sms-action-bar button{margin-left:auto}.sms-message{border:1px solid #d3e1e9;padding:11px;margin:10px 0;border-radius:8px;background:#f7fbff;overflow-wrap:anywhere}.sms-message p{margin:5px 0}.sms-preview{margin-top:14px;background:white;border:1px solid #d7e4ef;padding:16px;border-radius:12px}.sms-preview small{color:#657783}
