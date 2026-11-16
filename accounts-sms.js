@@ -112,67 +112,65 @@ async function renderSmsHistory(){
  }catch(e){document.querySelector('#smsHistoryHost').textContent='History unavailable: '+e.message;}
 }
 
-/* V42: Send a receipt SMS immediately after a successful, saved online receipt.
-   Do not send when opening/printing/reprinting an old receipt. No accounting writes.
-   Server re-reads receipt totals/date and enforces SMS ENABLED + idempotency.
-   A missing/invalid parent mobile is requested once, then securely saved server-side.
+/* V46: Receipt SMS without browser-native prompt (which may be blocked after printing).
+   Read the saved receipt/student on the server BEFORE sending. Never re-save receipt.
+   Missing number is entered in a dedicated in-page dialog; the existing secured
+   'received' action saves the number and sends once, subject to server switch.
 */
 const saPendingReceipts=new Set();
 function saNormalizePhone(v){return String(v||'').replace(/[\s-]/g,'').replace(/^(?:\+977|977)/,'');}
 function saValidPhone(v){return /^9[678]\d{8}$/.test(saNormalizePhone(v));}
-async function saInvokeReceived(receiptId,newMobile){
- const body={action:'received',receiptId};
- if(newMobile)body.newMobile=saNormalizePhone(newMobile);
+async function saInvokeAction(body){
  const {data,error}=await sb.functions.invoke('accounts-sms',{body});
  if(error){
-  let detail='';
-  try{detail=String((await error.context?.json())?.error||'');}catch(_e){}
-  return {ok:false,reason:detail||String(error.message||'SMS request failed')};
+  let reason='';
+  try{reason=String((await error.context?.json())?.error||'');}catch(_e){}
+  return {ok:false,reason:reason||String(error.message||'SMS server unavailable')};
  }
- return data?.ok?{ok:true}:{ok:false,reason:String(data?.error||'SMS request rejected')};
+ return data?.ok?{ok:true,data}:{ok:false,reason:String(data?.error||'Request rejected')};
+}
+function saNotify(message){
+ toast(message);
+ let banner=document.querySelector('#saReceiptSmsStatus');
+ if(!banner){banner=document.createElement('div');banner.id='saReceiptSmsStatus';banner.setAttribute('role','status');banner.style.cssText='position:fixed;bottom:16px;left:16px;z-index:1400;background:#153c55;color:white;border-radius:9px;padding:12px 15px;max-width:min(550px,calc(100vw - 32px));box-shadow:0 8px 30px #0005;font:14px Arial';document.body.appendChild(banner);}
+ banner.textContent=message;
+}
+function saOpenMobileDialog(receiptId,label){
+ return new Promise(resolve=>{
+  document.querySelector('#saSmsMobileOverlay')?.remove();
+  const overlay=document.createElement('div');overlay.id='saSmsMobileOverlay';
+  overlay.style.cssText='position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.68);padding:18px';
+  overlay.innerHTML=`<div role="dialog" aria-modal="true" aria-labelledby="saSmsMobileTitle" style="width:min(480px,100%);background:#fff;color:#172b3e;border-radius:12px;padding:23px;box-shadow:0 12px 40px #0006;font:15px Arial"><h3 id="saSmsMobileTitle" style="margin:0 0 8px">Parent Mobile Number Required</h3><p style="line-height:1.5;margin:8px 0">Receipt <b>${E(label||receiptId)}</b> has been saved. Enter the parent mobile number. It will be saved in Student Details and SMS will be attempted only if enabled.</p><form id="saSmsMobileForm"><label for="saSmsMobileInput" style="display:block;font-weight:700;margin:12px 0 5px">Nepal Mobile Number</label><input id="saSmsMobileInput" type="tel" inputmode="numeric" autocomplete="tel" maxlength="16" placeholder="98XXXXXXXX" required style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #8899aa;border-radius:6px"><p id="saSmsMobileError" role="alert" style="color:#a11;min-height:18px;font-size:13px"></p><div style="display:flex;gap:10px;justify-content:flex-end"><button type="button" id="saSmsMobileCancel" class="btn">Not Now</button><button type="submit" id="saSmsMobileSave" class="btn primary">Save Mobile &amp; Send SMS</button></div></form></div>`;
+  document.body.appendChild(overlay);
+  const input=overlay.querySelector('#saSmsMobileInput'),form=overlay.querySelector('#saSmsMobileForm');
+  const end=v=>{overlay.remove();resolve(v)};
+  overlay.querySelector('#saSmsMobileCancel').onclick=()=>end(null);
+  form.onsubmit=e=>{e.preventDefault();const value=saNormalizePhone(input.value);if(!saValidPhone(value)){overlay.querySelector('#saSmsMobileError').textContent='Please enter a valid 10-digit Nepal mobile number.';input.focus();return;}end(value);};
+  input.focus();
+ });
 }
 window.saSmsReceiptSaved=async function(receiptId){
- const id=String(receiptId||'');
+ const id=String(receiptId||'').trim();
  if(!id||!isAccountant()||saPendingReceipts.has(id))return;
  saPendingReceipts.add(id);
  try{
-  // Verify the saved receipt and current student phone locally first.
-  // The backend re-checks all of these fields and is the only writer of mobile_number.
-  const receipt=(db.receipts||[]).find(r=>String(r.id)===id);
-  if(!receipt){toast('Receipt saved. SMS needs review: saved receipt not loaded.');return;}
-  const student=(db.students||[]).find(s=>
-    String(s.id)===String(receipt.studentId||'') && String(s.year)===String(receipt.year)
-  ) || (db.students||[]).find(s=>
-    String(s.studentUuid||s.masterId||'')===String(receipt.studentUuid||receipt.masterId||'') &&
-    String(s.year)===String(receipt.year)
-  );
-  if(!student){toast('Receipt saved. SMS needs review: student record unavailable.');return;}
-  const savedPhone=saNormalizePhone(student.mobileNumber||student.phone||'');
-  let newMobile='';
-  if(!saValidPhone(savedPhone)){
-   const entered=window.prompt('Receipt saved successfully. Parent mobile is missing or invalid. Enter parent mobile number to save in Student Details (SMS sends only when enabled):','');
-   if(entered===null){toast('Receipt saved. Mobile entry cancelled; no SMS sent.');return;}
-   if(!saValidPhone(entered)){toast('Receipt saved. Enter a valid Nepal mobile number; no SMS sent.');return;}
-   newMobile=saNormalizePhone(entered);
+  // Authorized read-only lookup after receipt atomic save; independent of browser cache.
+  const status=await saInvokeAction({action:'received_mobile_status',receiptId:id});
+  if(!status.ok){saNotify('Receipt saved. Could not check parent mobile: '+status.reason);return;}
+  let mobileValue='';
+  if(!status.data.hasMobile){
+   mobileValue=await saOpenMobileDialog(id,status.data.receiptNo||id);
+   if(mobileValue===null){saNotify('Receipt saved. Mobile entry postponed; SMS not sent.');return;}
   }
-  let answer=await saInvokeReceived(id,newMobile);
-  // If the online student record changed since refresh, handle a missing-phone response once.
-  if(!answer.ok && !newMobile && /Parent mobile is invalid\/missing/i.test(answer.reason)){
-   const entered=window.prompt('Receipt saved. Parent mobile is missing in the online record. Enter a valid Nepal mobile number:','');
-   if(entered===null){toast('Receipt saved. Mobile entry cancelled; no SMS sent.');return;}
-   if(!saValidPhone(entered)){toast('Receipt saved. Invalid mobile; no SMS sent.');return;}
-   newMobile=saNormalizePhone(entered);
-   answer=await saInvokeReceived(id,newMobile);
+  const sent=await saInvokeAction({action:'received',receiptId:id,...(mobileValue?{newMobile:mobileValue}:{})});
+  if(mobileValue && (sent.ok || /SMS sending is disabled by Admin/i.test(sent.reason))){
+   try{await v15LoadOnlineStudents();}catch(e){console.warn('Refresh student mobile failed',e);}
   }
-  if(newMobile && (answer.ok||/SMS sending is disabled by Admin/i.test(answer.reason))){
-   // Refresh only student contact data; no receipt or financial record is modified.
-   try{await v15LoadOnlineStudents();}catch(e){console.warn('SMS: student mobile refresh failed',e);}
-  }
-  if(answer.ok)toast('Fee receipt SMS accepted by provider.');
-  else if(/SMS sending is disabled by Admin/i.test(answer.reason))toast(newMobile?'Parent mobile saved. SMS disabled by Admin.':'Receipt saved. SMS disabled by Admin.');
-  else if(/Already attempted/i.test(answer.reason))toast('Receipt saved. SMS already attempted — check SMS History.');
-  else{console.warn('Fee receipt SMS not accepted:',answer.reason);toast('Receipt saved. SMS not sent: '+answer.reason);}
- }catch(e){console.warn('Fee receipt SMS connection problem:',e);toast('Receipt saved. SMS status uncertain — check SMS History.');}
+  if(sent.ok)saNotify('Receipt saved. SMS accepted by provider.');
+  else if(/SMS sending is disabled by Admin/i.test(sent.reason))saNotify('Receipt saved. '+(mobileValue?'Mobile saved. ':'')+'SMS is disabled by Admin.');
+  else if(/Already attempted/i.test(sent.reason))saNotify('Receipt saved. SMS already attempted. Check SMS History.');
+  else saNotify('Receipt saved. SMS not confirmed: '+sent.reason+' — check SMS History before retrying.');
+ }catch(e){console.warn('Fee receipt SMS error',e);saNotify('Receipt saved. SMS status could not be verified; check SMS History.');}
  finally{saPendingReceipts.delete(id);}
 };
 

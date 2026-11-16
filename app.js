@@ -3032,16 +3032,18 @@ savePayment=async function(){
     await Promise.all([v15LoadOnlineStudents(),v17LoadOnlineOverrides(),v17LoadOnlineReceipts(),v17LoadOnlineBanks()]);
     const receiptId=data?.receipt_id||'',receipt=(db.receipts||[]).find(r=>r.id===receiptId)||(db.receipts||[]).find(r=>r.receiptNo===data?.receipt_no);
     feeReceiveV9Context={year:y,className:fresh.className};
-    if(receipt){showReceiptById(receipt.id,false);v17RenderSavedReceiptToWindow(printWin,receipt);}else if(printWin)printWin.close();
-    toast(`Online receipt ${data?.receipt_no||''} saved — Cash ${money(cash)} + Bank ${money(bank)}.`);renderFeePayment();
-    // After receipt confirmation & UI render, handle mobile prompt / SMS status.
-    // Never repeat the accounting RPC if SMS fails or mobile is missing.
+    // After atomic receipt save, resolve guardian mobile and SMS FIRST.
+    // A native print dialog in another window can obscure a missing-mobile prompt.
+    // Receipt print opens after the in-page SMS dialog is handled.
+    toast(`Online receipt ${data?.receipt_no||''} saved — Cash ${money(cash)} + Bank ${money(bank)}.`);
+    renderFeePayment();
     if((smsReceiptId || receipt?.id) && typeof window.saSmsReceiptSaved==='function'){
       await window.saSmsReceiptSaved(smsReceiptId || receipt.id);
     }else{
       console.warn('Fee SMS hook unavailable, receipt id:',smsReceiptId);
       toast('Receipt saved. SMS could not start; check SMS module and Receipt Register.');
     }
+    if(receipt){showReceiptById(receipt.id,false);v17RenderSavedReceiptToWindow(printWin,receipt);}else if(printWin)printWin.close();
   }catch(error){
     console.error('Online split fee receipt save failed:',error);if(printWin)printWin.close();toast('Fee receipt was NOT saved: '+String(error?.message||'Unknown error'));
     try{await Promise.all([v15LoadOnlineStudents(),v17LoadOnlineOverrides(),v17LoadOnlineReceipts(),v17LoadOnlineBanks()]);drawPayPanel();}catch(_){/* ignore secondary refresh */}
@@ -5798,3 +5800,28 @@ drawStudentReport=function(...args){
 
 /* V42: Disable retired receipt WhatsApp action. Other receipt, print and accounting functions unchanged. */
 window.v196SendReceiptWhatsApp=function(){toast('WhatsApp receipt sharing has been replaced by automatic SMS.');};
+
+
+/* V46: Display the current (unallocated) Fee Receipt number from LIVE Supabase.
+   Only the atomic receipt RPC assigns the definitive receipt number. This is
+   display-only; no counter writes, resets, increments, or accounting changes. */
+(function(){
+ 'use strict';
+ const oldRenderFee=renderFeePayment;
+ renderFeePayment=function(){
+  oldRenderFee();
+  if(!isAccountant())return;
+  const host=document.querySelector('#content .section-title .next-number');
+  if(!host)return;
+  host.innerHTML='<small>Current Receipt No.</small><b id="v46CurrentReceipt">Loading…</b><small style="font-weight:400">Confirmed when saved</small>';
+  sb.from('document_counters').select('prefix,next_number,padding').eq('counter_key','fee_receipt').single()
+   .then(({data,error})=>{
+    const target=document.querySelector('#v46CurrentReceipt');
+    if(!target||!host.isConnected)return;
+    if(error||!data||!Number.isInteger(Number(data.next_number))||Number(data.next_number)<1){target.textContent='See saved receipt';return;}
+    const width=Math.max(1,Math.min(20,Number(data.padding)||1));
+    target.textContent=String(data.prefix||'')+String(data.next_number).padStart(width,'0');
+   }).catch(()=>{const target=document.querySelector('#v46CurrentReceipt');if(target&&host.isConnected)target.textContent='See saved receipt';});
+ };
+ window.renderFeePayment=renderFeePayment;
+})();
