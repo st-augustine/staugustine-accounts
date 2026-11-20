@@ -5784,16 +5784,18 @@ drawStudentReport=function(...args){
   renderPage=function(){if(session.page==='dailyFinancialReport')return renderDailyFinancialReport();return baseRender();};
   window.renderPage=renderPage;
   const oldDashboard=renderDashboard;
+  let dashboardRequestSerial=0; // Only the newest dashboard request may update the screen.
   renderDashboard=function(){
+    const requestSerial=++dashboardRequestSerial;
     if(!isAccountant()&&!hasPermission('dashboard'))return oldDashboard();
     document.querySelector('#content').innerHTML='<div class="section"><div class="empty">Loading financial dashboard…</div></div>';
     const pageDate=todayDate(),pageRole=session.role;
     snapshot(pageDate).then(s=>{
-      if(session.page!=='dashboard'||session.role!==pageRole)return;
+      if(requestSerial!==dashboardRequestSerial||session.page!=='dashboard'||session.role!==pageRole||workingDate()!==pageDate)return;
       const reportButton=`<button class="btn primary" id="v39OpenReport" type="button">Daily Financial Report — Print / PDF</button>`;
       document.querySelector('#content').innerHTML=`<div class="v39-dashboard"><div class="v39-dash-header"><div><h3>Accounts Financial Overview</h3><p>${esc(roleName())} ${isAccountant()?'':' · READ ONLY'} · Academic Year ${esc(getYear())} · ${esc(pageDate)} BS</p></div>${reportButton}</div>${metricSections(s)}${s.warnings.length?`<div class="v39-hint">${s.warnings.map(esc).join(' · ')}</div>`:''}</div>`;
       document.querySelector('#v39OpenReport').onclick=()=>navigate('dailyFinancialReport');
-    }).catch(err=>{if(session.page==='dashboard')document.querySelector('#content').innerHTML=showMissing('Financial Dashboard unavailable: '+err.message);});
+    }).catch(err=>{if(requestSerial===dashboardRequestSerial&&session.page==='dashboard'&&session.role===pageRole)document.querySelector('#content').innerHTML=showMissing('Financial Dashboard unavailable: '+err.message);});
   };
   window.renderDashboard=renderDashboard;
 })();
@@ -5824,4 +5826,37 @@ window.v196SendReceiptWhatsApp=function(){toast('WhatsApp receipt sharing has be
    }).catch(()=>{const target=document.querySelector('#v46CurrentReceipt');if(target&&host.isConnected)target.textContent='See saved receipt';});
  };
  window.renderFeePayment=renderFeePayment;
+})();
+
+
+/* V48 — Dashboard first-paint consistency (display-only, NO database writes).
+   The existing login chain progressively fetches Student/Fees/Receipts/Bank/Operations
+   and calls renderPage at each stage. Do not show monetary figures from partial loads.
+   Render one fast skeleton, then the final dashboard from the completed login data.
+   Preserve all existing Supabase queries, permissions, reports, and SMS functions. */
+(function(){
+  'use strict';
+  let loginHydrating=false;
+  const underlyingDashboard=renderDashboard;
+  renderDashboard=function(){
+    if(!loginHydrating)return underlyingDashboard();
+    const host=document.querySelector('#content');
+    if(!host)return;
+    if(host.querySelector('[data-v48-loading]'))return;
+    host.innerHTML='<div class="v48-dashboard-loading" data-v48-loading role="status" aria-live="polite"><div class="v48-loading-head"><span class="v48-loading-spinner" aria-hidden="true"></span><div><strong>Loading latest accounts…</strong><small>Checking current online balances</small></div></div><div class="v48-loading-grid">'+Array.from({length:6},()=>'<div class="v48-loading-card"><div></div><div></div></div>').join('')+'</div></div>';
+  };
+  window.renderDashboard=renderDashboard;
+
+  const originalOpenOnlineSession=openOnlineSession;
+  openOnlineSession=async function(user,expectedRole=null){
+    loginHydrating=true;
+    try{
+      return await originalOpenOnlineSession(user,expectedRole);
+    }finally{
+      loginHydrating=false;
+      // One final view after all sequential online loaders have settled.
+      if(session.role&&session.page==='dashboard')renderPage();
+    }
+  };
+  window.openOnlineSession=openOnlineSession;
 })();

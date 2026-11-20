@@ -445,3 +445,16 @@ body{letter-spacing:.001em}
 @media(max-width:700px){.v40-report-name-fields{grid-template-columns:1fr}}
 /* Additive SMS screen: existing accounts CSS unchanged above. */
 .sms-action-bar{display:flex;align-items:center;gap:15px;flex-wrap:wrap;margin:12px 0}.sms-action-bar button{margin-left:auto}.sms-message{border:1px solid #d3e1e9;padding:11px;margin:10px 0;border-radius:8px;background:#f7fbff;overflow-wrap:anywhere}.sms-message p{margin:5px 0}.sms-preview{margin-top:14px;background:white;border:1px solid #d7e4ef;padding:16px;border-radius:12px}.sms-preview small{color:#657783}
+
+/* V48: Lightweight loading placeholders; never show stale financial numbers on login. */
+.v48-dashboard-loading{background:#fff;border:1px solid #c9d5df;padding:20px;min-height:240px}
+.v48-loading-head{display:flex;gap:12px;align-items:center;color:#24435b;margin-bottom:20px}
+.v48-loading-head strong,.v48-loading-head small{display:block}.v48-loading-head small{font-size:12px;color:#617487;margin-top:3px}
+.v48-loading-spinner{width:23px;height:23px;border:3px solid #d9e9f2;border-top-color:#2473a7;border-radius:50%;animation:v48-spin .7s linear infinite;flex-shrink:0}
+.v48-loading-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.v48-loading-card{background:#f2f6f9;border:1px solid #e5edf2;padding:18px;min-height:91px}
+.v48-loading-card div{height:12px;width:58%;border-radius:4px;background:#dde7ee;margin-bottom:13px}
+.v48-loading-card div+div{height:21px;width:76%;background:#d2dfe8}
+@keyframes v48-spin{to{transform:rotate(360deg)}}
+@media(max-width:650px){.v48-loading-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(prefers-reduced-motion:reduce){.v48-loading-spinner{animation:none}}
